@@ -33,10 +33,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #79a9ff; outline-offset: 2px; }
 .app { min-height: 100vh; background: radial-gradient(circle at 82% 5%, rgba(39, 91, 159, .16), transparent 30%), var(--bg); }
 
-.site-header { height: 76px; padding: 0 clamp(20px, 5vw, 76px); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); background: rgba(7, 16, 30, .92); position: sticky; top: 0; z-index: 30; backdrop-filter: blur(15px); }
-.brand { padding: 0; border: 0; background: none; display: flex; align-items: center; gap: 12px; text-align: left; cursor: pointer; }
-.brand strong { display: block; font: 700 18px/1 "Roboto Mono", monospace; letter-spacing: .12em; }
-.brand small { display: block; color: var(--muted); font-size: 10px; letter-spacing: .08em; margin-top: 5px; text-transform: uppercase; }
+.site-header { height: 96px; padding: 0 clamp(20px, 5vw, 76px); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); background: rgba(7, 16, 30, .92); position: sticky; top: 0; z-index: 30; backdrop-filter: blur(15px); }
+.brand { padding: 0; border: 0; background: none; display: flex; align-items: center; gap: 14px; text-align: left; cursor: pointer; }
+.brand strong { display: block; font: 700 19px/1 "Roboto Mono", monospace; letter-spacing: .12em; }
+.brand small { display: block; color: var(--muted); font-size: 10.5px; letter-spacing: .08em; margin-top: 6px; text-transform: uppercase; }
 .site-header nav { display: flex; align-items: center; gap: 6px; }
 .site-header nav button { height: 42px; padding: 0 14px; border: 1px solid transparent; border-radius: 10px; background: none; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: .2s ease; }
 .site-header nav button:hover, .site-header nav button.active { color: var(--text); background: rgba(255,255,255,.055); }
@@ -84,9 +84,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 @keyframes settings-rise { from { opacity: 0; transform: translateY(18px) scale(.98); } }
 
 .emblem { width: 122px; height: 122px; border-radius: 50%; background: #0c1b30; border: 1px solid rgba(211,174,104,.35); display: grid; place-items: center; overflow: hidden; position: relative; box-shadow: 0 0 0 6px rgba(211,174,104,.04); }
-.emblem img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
+.emblem img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: auto; filter: contrast(1.08) saturate(1.05); z-index: 1; }
 .emblem__fallback { width: 62%; height: 62%; border: 1px solid var(--gold); color: var(--gold); border-radius: 50%; display: grid; place-items: center; }
-.emblem--compact { width: 42px; height: 42px; box-shadow: none; }
+.emblem--compact { width: 68px; height: 68px; flex: 0 0 68px; box-shadow: 0 0 0 4px rgba(211,174,104,.035); }
 
 .hero { min-height: 470px; padding: 88px clamp(20px, 8vw, 128px) 76px; display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 60px; align-items: center; border-bottom: 1px solid var(--line); position: relative; overflow: hidden; }
 .hero::after { content: "AOGD / PUBLIC RECORDS / 01"; position: absolute; right: 30px; bottom: 18px; color: rgba(147,163,184,.25); font: 500 10px "Roboto Mono", monospace; letter-spacing: .14em; }
@@ -336,7 +336,8 @@ html[data-reduce-motion="true"] *, html[data-reduce-motion="true"] *::before, ht
   .hero { grid-template-columns: 1fr 180px; }
 }
 @media (max-width: 720px) {
-  .site-header { height: 66px; padding: 0 15px; }
+  .site-header { height: 74px; padding: 0 15px; }
+  .emblem--compact { width: 50px; height: 50px; flex-basis: 50px; }
   .brand small { display: none; }
   .site-header nav button:first-child { display: none; }
   .site-header nav .admin-link { margin: 0; padding: 0 10px; }
