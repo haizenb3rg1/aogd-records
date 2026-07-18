@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { authenticate, deleteRecord, loadRecords, resetLocalAdminPassword, resetLocalDemo, saveRecord } from "./api.js";
 import { useInterfaceLanguage } from "./i18n.js";
 
-const Dither = lazy(() => import("./components/Dither.jsx"));
+const Dither = lazy(() => import("./Dither.jsx"));
 
 const STATUS = {
   wanted: { label: "Разыскивается", tone: "danger" },
