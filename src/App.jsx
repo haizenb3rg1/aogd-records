@@ -397,6 +397,10 @@ function MaintenancePage({ language }) {
         <h1>{isEnglish ? "Technical maintenance" : "Технические работы"}</h1>
         <p>{isEnglish ? "The portal is temporarily unavailable while we prepare an update." : "Портал временно закрыт, пока мы готовим обновление."}</p>
         <span>{isEnglish ? "Please check back later." : "Пожалуйста, зайдите позже."}</span>
+        <a className="maintenance-telegram" href="https://t.me/AgencyofGoodDeeds" target="_blank" rel="noreferrer">
+          <span aria-hidden="true">✈</span>
+          t.me/AgencyofGoodDeeds
+        </a>
       </div>
     </main>
   );

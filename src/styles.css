@@ -364,3 +364,24 @@ html[data-theme="dark"] .photo-drop { background: #070b10; }
 .maintenance-card h1 { margin: 12px 0; font-size: clamp(36px, 7vw, 64px); }
 .maintenance-card > p:not(.maintenance-eyebrow) { margin: 0 auto 18px; max-width: 470px; color: #c9d9ee; font-size: 18px; line-height: 1.65; }
 .maintenance-card > span { color: #8196af; }
+.maintenance-telegram {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: fit-content;
+  margin: 28px auto 0;
+  padding: 12px 18px;
+  border: 1px solid rgba(126, 177, 255, .45);
+  border-radius: 999px;
+  background: rgba(33, 126, 229, .16);
+  color: #a9ceff;
+  font-weight: 700;
+  text-decoration: none;
+  transition: transform .2s ease, border-color .2s ease, background .2s ease;
+}
+.maintenance-telegram:hover {
+  transform: translateY(-2px);
+  border-color: #7eb1ff;
+  background: rgba(33, 126, 229, .28);
+}
