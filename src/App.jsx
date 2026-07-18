@@ -70,8 +70,14 @@ function Emblem({ compact = false }) {
   );
 }
 
+const ADMIN_HASH = "#/aogd-vault-7m4k9p";
+
+function isAdminLocation() {
+  return window.location.hash === ADMIN_HASH;
+}
+
 function go(route) {
-  window.location.hash = route === "admin" ? "/admin" : "/";
+  window.location.hash = route === "admin" ? ADMIN_HASH.slice(1) : "/";
 }
 
 function Header({ route, theme, onThemeChange, language, onLanguageChange }) {
@@ -92,7 +98,6 @@ function Header({ route, theme, onThemeChange, language, onLanguageChange }) {
           <button className={language === "ru" ? "active" : ""} onClick={() => onLanguageChange("ru")} aria-label="Русский язык" title="Русский">RU</button>
           <button className={language === "en" ? "active" : ""} onClick={() => onLanguageChange("en")} aria-label="English language" title="English">EN</button>
         </div>
-        <button className={`admin-link ${route === "admin" ? "active" : ""}`} onClick={() => go("admin")}><Icon name="lock" size={16} /> <span>Управление</span></button>
       </nav>
     </header>
   );
@@ -407,7 +412,7 @@ function MaintenancePage({ language }) {
 }
 
 export default function App() {
-  const [route, setRoute] = useState(window.location.hash === "#/admin" ? "admin" : "public");
+  const [route, setRoute] = useState(isAdminLocation() ? "admin" : "public");
   const [records, setRecords] = useState([]);
   const [mode, setMode] = useState("unknown");
   const [loading, setLoading] = useState(true);
@@ -422,7 +427,7 @@ export default function App() {
     return navigator.languages?.some((item) => item.toLowerCase().startsWith("ru")) ? "ru" : "en";
   });
   useInterfaceLanguage(language);
-  useEffect(() => { const handler = () => setRoute(window.location.hash === "#/admin" ? "admin" : "public"); window.addEventListener("hashchange", handler); return () => window.removeEventListener("hashchange", handler); }, []);
+  useEffect(() => { const handler = () => setRoute(isAdminLocation() ? "admin" : "public"); window.addEventListener("hashchange", handler); return () => window.removeEventListener("hashchange", handler); }, []);
   useEffect(() => { loadRecords().then((result) => { setRecords(result.records); setMode(result.mode); }).finally(() => setLoading(false)); }, []);
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("aogd-theme", theme); }, [theme]);
   function changeTheme(nextTheme, event) {
@@ -442,6 +447,6 @@ export default function App() {
     localStorage.setItem("aogd-language", nextLanguage);
     setLanguage(nextLanguage);
   }
-  if (MAINTENANCE_MODE) return <MaintenancePage language={language} />;
+  if (MAINTENANCE_MODE && route !== "admin") return <MaintenancePage language={language} />;
   return <div className="app"><Header route={route} theme={theme} onThemeChange={changeTheme} language={language} onLanguageChange={changeLanguage} />{route === "admin" ? <AdminPanel records={records} setRecords={setRecords} mode={mode} token={token} setToken={setToken} /> : <PublicDatabase records={records} loading={loading} mode={mode} />}<footer><span>© {new Date().getFullYear()} A.O.G.D</span><span>Agency Of Good Deeds · Independent records project</span></footer></div>;
 }
