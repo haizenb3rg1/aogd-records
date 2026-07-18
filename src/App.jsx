@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import { authenticate, deleteRecord, loadRecords, resetLocalAdminPassword, resetLocalDemo, saveRecord } from "./api.js";
 import { useInterfaceLanguage } from "./i18n.js";
+
+const Dither = lazy(() => import("./components/Dither.jsx"));
 
 const STATUS = {
   wanted: { label: "Разыскивается", tone: "danger" },
@@ -57,6 +59,7 @@ function Icon({ name, size = 20 }) {
     logout: <><path d="M10 5H5v14h5"/><path d="M14 8l4 4-4 4"/><path d="M18 12H9"/></>,
     sun: <><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></>,
     moon: <path d="M20.5 14.2A7.7 7.7 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"/>,
+    settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.09A1.7 1.7 0 0 0 9 19.36a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15a1.7 1.7 0 0 0-1.56-1.03H3v-4h.09A1.7 1.7 0 0 0 4.64 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63a1.7 1.7 0 0 0 1.03-1.56V3h4v.09A1.7 1.7 0 0 0 15 4.64a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9a1.7 1.7 0 0 0 1.56 1.03H21v4h-.09A1.7 1.7 0 0 0 19.4 15Z"/></>,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -80,26 +83,70 @@ function go(route) {
   window.location.hash = route === "admin" ? ADMIN_HASH.slice(1) : "/";
 }
 
-function Header({ route, theme, onThemeChange, language, onLanguageChange }) {
+function SettingsPanel({ theme, onThemeChange, comfort, onComfortChange, onClose }) {
+  const [tab, setTab] = useState("appearance");
+  useEffect(() => {
+    const closeOnEscape = (event) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
   return (
-    <header className="site-header">
+    <div className="settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="settings-panel" role="dialog" aria-modal="true" aria-label="Настройки интерфейса">
+        <div className="settings-heading">
+          <div><span>Персонализация</span><h2>Настройки</h2></div>
+          <button className="settings-close" onClick={onClose} aria-label="Закрыть"><Icon name="close" /></button>
+        </div>
+        <div className="settings-tabs" role="tablist">
+          <button className={tab === "appearance" ? "active" : ""} onClick={() => setTab("appearance")}>Оформление</button>
+          <button className={tab === "comfort" ? "active" : ""} onClick={() => setTab("comfort")}>Интерфейс</button>
+        </div>
+        {tab === "appearance" ? (
+          <div className="settings-content">
+            <div className="setting-intro"><h3>Цветовая тема</h3><p>Выберите оформление, которое приятнее для глаз.</p></div>
+            <div className="theme-options">
+              {[
+                { value: "light", label: "Светлая", icon: "sun" },
+                { value: "default", label: "Синяя", icon: "shield" },
+                { value: "dark", label: "Тёмная", icon: "moon" },
+              ].map((item) => <button key={item.value} className={theme === item.value ? "active" : ""} onClick={() => onThemeChange(item.value)}><Icon name={item.icon} /><span>{item.label}</span>{theme === item.value && <small>Выбрано</small>}</button>)}
+            </div>
+          </div>
+        ) : (
+          <div className="settings-content">
+            <div className="setting-row setting-row--stack">
+              <div><h3>Размер текста</h3><p>Настройте удобный масштаб интерфейса.</p></div>
+              <div className="size-options">
+                {[{ value: "small", label: "Меньше" }, { value: "normal", label: "Обычно" }, { value: "large", label: "Крупнее" }].map((item) => <button key={item.value} className={comfort.fontSize === item.value ? "active" : ""} onClick={() => onComfortChange("fontSize", item.value)}>{item.label}</button>)}
+              </div>
+            </div>
+            <label className="setting-row"><div><h3>Компактные карточки</h3><p>Показывать больше досье на экране.</p></div><input type="checkbox" checked={comfort.compactCards} onChange={(event) => onComfortChange("compactCards", event.target.checked)} /><span className="switch" /></label>
+            <label className="setting-row"><div><h3>Меньше анимаций</h3><p>Уменьшить движение и плавные эффекты.</p></div><input type="checkbox" checked={comfort.reduceMotion} onChange={(event) => onComfortChange("reduceMotion", event.target.checked)} /><span className="switch" /></label>
+          </div>
+        )}
+        <div className="settings-footer">Настройки сохраняются только на этом устройстве.</div>
+      </section>
+    </div>
+  );
+}
+
+function Header({ route, theme, onThemeChange, language, onLanguageChange, comfort, onComfortChange }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  return (
+    <><header className="site-header">
       <button className="brand" onClick={() => go("public")} aria-label="На главную">
         <Emblem compact />
         <span><strong>A.O.G.D</strong><small>Agency Of Good Deeds</small></span>
       </button>
       <nav aria-label="Основная навигация">
         <button className={route === "public" ? "active" : ""} onClick={() => go("public")}>Открытые досье</button>
-        <div className="theme-picker" aria-label="Тема оформления">
-          <button className={theme === "light" ? "active" : ""} onClick={(event) => onThemeChange("light", event)} aria-label="Светлая тема" title="Светлая тема"><Icon name="sun" size={16} /></button>
-          <button className={theme === "default" ? "active" : ""} onClick={(event) => onThemeChange("default", event)} aria-label="Стандартная синяя тема" title="Стандартная синяя тема"><Icon name="shield" size={16} /></button>
-          <button className={theme === "dark" ? "active" : ""} onClick={(event) => onThemeChange("dark", event)} aria-label="Тёмная тема" title="Тёмная тема"><Icon name="moon" size={16} /></button>
-        </div>
+        <button className="settings-button" onClick={() => setSettingsOpen(true)} aria-label="Настройки" title="Настройки"><Icon name="settings" size={17} /></button>
         <div className="language-picker" aria-label="Language">
           <button className={language === "ru" ? "active" : ""} onClick={() => onLanguageChange("ru")} aria-label="Русский язык" title="Русский">RU</button>
           <button className={language === "en" ? "active" : ""} onClick={() => onLanguageChange("en")} aria-label="English language" title="English">EN</button>
         </div>
       </nav>
-    </header>
+    </header>{settingsOpen && <SettingsPanel theme={theme} onThemeChange={onThemeChange} comfort={comfort} onComfortChange={onComfortChange} onClose={() => setSettingsOpen(false)} />}</>
   );
 }
 
@@ -392,10 +439,26 @@ function AdminPanel({ records, setRecords, mode, token, setToken }) {
 
 const MAINTENANCE_MODE = import.meta.env.VITE_MAINTENANCE_MODE === "true";
 
-function MaintenancePage({ language }) {
+function MaintenancePage({ language, reduceMotion }) {
   const isEnglish = language === "en";
   return (
     <main className="maintenance-page">
+      <div className="maintenance-dither" aria-hidden="true">
+        <Suspense fallback={<div className="maintenance-dither-fallback" />}>
+          <Dither
+            waveColor={[0.08, 0.3, 0.62]}
+            disableAnimation={reduceMotion}
+            enableMouseInteraction={!reduceMotion}
+            mouseRadius={0.55}
+            colorNum={10}
+            pixelSize={2}
+            waveAmplitude={0.26}
+            waveFrequency={2.15}
+            waveSpeed={0.025}
+          />
+        </Suspense>
+      </div>
+      <div className="maintenance-shade" aria-hidden="true" />
       <div className="maintenance-card">
         <Emblem />
         <p className="maintenance-eyebrow">A.O.G.D · Agency Of Good Deeds</p>
@@ -426,13 +489,26 @@ export default function App() {
     if (["ru", "en"].includes(saved)) return saved;
     return navigator.languages?.some((item) => item.toLowerCase().startsWith("ru")) ? "ru" : "en";
   });
+  const [comfort, setComfort] = useState(() => {
+    try {
+      return { fontSize: "normal", compactCards: false, reduceMotion: false, ...JSON.parse(localStorage.getItem("aogd-comfort") || "{}") };
+    } catch {
+      return { fontSize: "normal", compactCards: false, reduceMotion: false };
+    }
+  });
   useInterfaceLanguage(language);
   useEffect(() => { const handler = () => setRoute(isAdminLocation() ? "admin" : "public"); window.addEventListener("hashchange", handler); return () => window.removeEventListener("hashchange", handler); }, []);
   useEffect(() => { loadRecords().then((result) => { setRecords(result.records); setMode(result.mode); }).finally(() => setLoading(false)); }, []);
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("aogd-theme", theme); }, [theme]);
+  useEffect(() => {
+    document.documentElement.dataset.fontSize = comfort.fontSize;
+    document.documentElement.dataset.compactCards = String(comfort.compactCards);
+    document.documentElement.dataset.reduceMotion = String(comfort.reduceMotion);
+    localStorage.setItem("aogd-comfort", JSON.stringify(comfort));
+  }, [comfort]);
   function changeTheme(nextTheme, event) {
     if (nextTheme === theme) return;
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduceMotion = comfort.reduceMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (!document.startViewTransition || reduceMotion) { setTheme(nextTheme); return; }
     const x = event?.clientX ?? window.innerWidth / 2;
     const y = event?.clientY ?? 0;
@@ -447,6 +523,9 @@ export default function App() {
     localStorage.setItem("aogd-language", nextLanguage);
     setLanguage(nextLanguage);
   }
-  if (MAINTENANCE_MODE && route !== "admin") return <MaintenancePage language={language} />;
-  return <div className="app"><Header route={route} theme={theme} onThemeChange={changeTheme} language={language} onLanguageChange={changeLanguage} />{route === "admin" ? <AdminPanel records={records} setRecords={setRecords} mode={mode} token={token} setToken={setToken} /> : <PublicDatabase records={records} loading={loading} mode={mode} />}<footer><span>© {new Date().getFullYear()} A.O.G.D</span><span>Agency Of Good Deeds · Independent records project</span></footer></div>;
+  function changeComfort(key, value) {
+    setComfort((current) => ({ ...current, [key]: value }));
+  }
+  if (MAINTENANCE_MODE && route !== "admin") return <MaintenancePage language={language} reduceMotion={comfort.reduceMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches} />;
+  return <div className="app"><Header route={route} theme={theme} onThemeChange={changeTheme} language={language} onLanguageChange={changeLanguage} comfort={comfort} onComfortChange={changeComfort} />{route === "admin" ? <AdminPanel records={records} setRecords={setRecords} mode={mode} token={token} setToken={setToken} /> : <PublicDatabase records={records} loading={loading} mode={mode} />}<footer><span>© {new Date().getFullYear()} A.O.G.D</span><span>Agency Of Good Deeds · Independent records project</span></footer></div>;
 }
