@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+// A.O.G.D public portal entrypoint.
 import { flushSync } from "react-dom";
 import { authenticate, deleteRecord, loadRecords, resetLocalAdminPassword, resetLocalDemo, saveRecord } from "./api.js";
 import { useInterfaceLanguage } from "./i18n.js";
@@ -451,10 +452,10 @@ function MaintenancePage({ language, reduceMotion }) {
             enableMouseInteraction={false}
             mouseRadius={0.5}
             colorNum={18}
-            pixelSize={2}
+            pixelSize={1.5}
             waveAmplitude={0.27}
             waveFrequency={1.55}
-            waveSpeed={0.17}
+            waveSpeed={0.19}
           />
         </Suspense>
       </div>

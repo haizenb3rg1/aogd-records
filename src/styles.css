@@ -404,7 +404,7 @@ html[data-reduce-motion="true"] *, html[data-reduce-motion="true"] *::before, ht
   color: #fff;
   text-align: center;
 }
-.maintenance-dither { position: absolute; inset: -3%; z-index: -3; opacity: .9; }
+.maintenance-dither { position: absolute; inset: -3%; z-index: -3; opacity: .82; pointer-events: none; contain: strict; }
 .maintenance-dither-fallback { width: 100%; height: 100%; background: radial-gradient(circle at 50% 25%, #123f76, #06111f 70%); }
 .maintenance-shade { position: absolute; inset: 0; z-index: -2; background: radial-gradient(circle at 50% 45%, rgba(5,18,34,.08), rgba(4,12,24,.56) 55%, rgba(3,9,18,.88) 100%), linear-gradient(180deg, rgba(3,11,22,.18), rgba(3,11,22,.52)); pointer-events: none; }
 .maintenance-card {
@@ -414,9 +414,8 @@ html[data-reduce-motion="true"] *, html[data-reduce-motion="true"] *::before, ht
   border-radius: 28px;
   position: relative;
   z-index: 1;
-  background: rgba(7, 20, 37, .74);
+  background: rgba(7, 20, 37, .92);
   box-shadow: 0 30px 90px rgba(0, 0, 0, .35);
-  backdrop-filter: blur(18px);
 }
 .maintenance-card .emblem { margin: 0 auto 20px; }
 .maintenance-eyebrow { color: #7eb1ff; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }

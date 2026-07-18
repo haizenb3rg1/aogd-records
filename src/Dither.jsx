@@ -171,7 +171,7 @@ function DitheredWaves({ waveSpeed, waveFrequency, waveAmplitude, waveColor, col
   useEffect(() => {
     invalidate();
     if (disableAnimation) return undefined;
-    const timer = window.setInterval(invalidate, 1000 / 40);
+    const timer = window.setInterval(invalidate, 1000 / 30);
     return () => window.clearInterval(timer);
   }, [disableAnimation, invalidate]);
 
@@ -208,7 +208,7 @@ function DitheredWaves({ waveSpeed, waveFrequency, waveAmplitude, waveColor, col
       <planeGeometry args={[1, 1]} />
       <shaderMaterial vertexShader={waveVertexShader} fragmentShader={waveFragmentShader} uniforms={waveUniformsRef.current} />
     </mesh>
-    <EffectComposer><RetroEffect colorNum={colorNum} pixelSize={pixelSize} /></EffectComposer>
+    <EffectComposer multisampling={0}><RetroEffect colorNum={colorNum} pixelSize={pixelSize} /></EffectComposer>
   </>;
 }
 
@@ -223,7 +223,7 @@ export default function Dither({
   enableMouseInteraction = true,
   mouseRadius = 1,
 }) {
-  return <Canvas className="dither-container" camera={{ position: [0, 0, 6] }} dpr={0.8} frameloop="demand" gl={{ antialias: false, powerPreference: "high-performance" }}>
+  return <Canvas className="dither-container" camera={{ position: [0, 0, 6] }} dpr={0.5} frameloop="demand" gl={{ antialias: false, alpha: false, depth: false, stencil: false, powerPreference: "high-performance" }}>
     <DitheredWaves waveSpeed={waveSpeed} waveFrequency={waveFrequency} waveAmplitude={waveAmplitude} waveColor={waveColor} colorNum={colorNum} pixelSize={pixelSize} disableAnimation={disableAnimation} enableMouseInteraction={enableMouseInteraction} mouseRadius={mouseRadius} />
   </Canvas>;
 }
