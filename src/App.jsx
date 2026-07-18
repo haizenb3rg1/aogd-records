@@ -61,6 +61,13 @@ function Icon({ name, size = 20 }) {
     sun: <><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></>,
     moon: <path d="M20.5 14.2A7.7 7.7 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"/>,
     settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.09A1.7 1.7 0 0 0 9 19.36a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15a1.7 1.7 0 0 0-1.56-1.03H3v-4h.09A1.7 1.7 0 0 0 4.64 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63a1.7 1.7 0 0 0 1.03-1.56V3h4v.09A1.7 1.7 0 0 0 15 4.64a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9a1.7 1.7 0 0 0 1.56 1.03H21v4h-.09A1.7 1.7 0 0 0 19.4 15Z"/></>,
+    copy: <><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></>,
+    print: <><path d="M7 9V4h10v5"/><path d="M7 18H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="7" y="14" width="10" height="7"/></>,
+    check: <><path d="m5 12 4 4L19 6"/><circle cx="12" cy="12" r="9"/></>,
+    send: <><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></>,
+    book: <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></>,
+    globe: <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></>,
+    clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -82,6 +89,10 @@ function isAdminLocation() {
 
 function go(route) {
   window.location.hash = route === "admin" ? ADMIN_HASH.slice(1) : "/";
+}
+
+function scrollToSection(id) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function SettingsPanel({ theme, onThemeChange, comfort, onComfortChange, onClose }) {
@@ -140,7 +151,11 @@ function Header({ route, theme, onThemeChange, language, onLanguageChange, comfo
         <span><strong>A.O.G.D</strong><small>Agency Of Good Deeds</small></span>
       </button>
       <nav aria-label="Основная навигация">
-        <button className={route === "public" ? "active" : ""} onClick={() => go("public")}>Открытые досье</button>
+        {route === "public" ? <>
+          <button className="header-nav-link" onClick={() => scrollToSection("registry")}>Реестр</button>
+          <button className="header-nav-link" onClick={() => scrollToSection("principles")}>Принципы</button>
+          <button className="header-report-link" onClick={() => scrollToSection("report")}>Передать сведения</button>
+        </> : <button className="header-nav-link" onClick={() => go("public")}>Открытые досье</button>}
         <button className="settings-button" onClick={() => setSettingsOpen(true)} aria-label="Настройки" title="Настройки"><Icon name="settings" size={17} /></button>
         <div className="language-picker" aria-label="Language">
           <button className={language === "ru" ? "active" : ""} onClick={() => onLanguageChange("ru")} aria-label="Русский язык" title="Русский">RU</button>
@@ -199,11 +214,22 @@ function DetailRow({ label, children }) {
 }
 
 function RecordDetail({ record, onClose }) {
+  const [copied, setCopied] = useState(false);
   useEffect(() => {
     const handleKey = (event) => event.key === "Escape" && onClose();
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [onClose]);
+
+  async function copyNumber() {
+    try {
+      await navigator.clipboard.writeText(record.fileNumber || "");
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -217,6 +243,11 @@ function RecordDetail({ record, onClose }) {
             <h2 id="record-title">{record.fullName}</h2>
             <p>{record.aliases ? `Псевдонимы: ${record.aliases}` : "Псевдонимы не указаны"}</p>
           </div>
+        </div>
+        <div className="detail-actions" aria-label="Действия с досье">
+          <button type="button" onClick={copyNumber}><Icon name={copied ? "check" : "copy"} size={17} />{copied ? "Номер скопирован" : "Скопировать номер"}</button>
+          <button type="button" onClick={() => window.print()}><Icon name="print" size={17} />Версия для печати</button>
+          <span>Дата обновления: {record.updatedAt ? formatDate(String(record.updatedAt).slice(0, 10)) : "не указана"}</span>
         </div>
         {record.isDemo && <div className="notice notice--info"><Icon name="info" /><span><strong>Демонстрационные данные.</strong> Эта запись вымышленная и нужна только для знакомства с интерфейсом.</span></div>}
         <div className="detail-section">
@@ -249,7 +280,15 @@ function RecordDetail({ record, onClose }) {
 function PublicDatabase({ records, loading, mode }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
+  const [sort, setSort] = useState("updated");
   const [selected, setSelected] = useState(null);
+
+  const statusCounts = useMemo(() => records.reduce((counts, record) => ({ ...counts, [record.status]: (counts[record.status] || 0) + 1 }), {}), [records]);
+  const activeCount = (statusCounts.wanted || 0) + (statusCounts.priority || 0);
+  const lastUpdated = useMemo(() => {
+    const dates = records.map((record) => new Date(record.updatedAt || "")).filter((date) => !Number.isNaN(date.getTime())).sort((a, b) => b - a);
+    return dates[0] ? new Intl.DateTimeFormat(localStorage.getItem("aogd-language") === "en" ? "en-US" : "ru-RU", { day: "2-digit", month: "short", year: "numeric" }).format(dates[0]) : "—";
+  }, [records]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase("ru");
@@ -257,36 +296,80 @@ function PublicDatabase({ records, loading, mode }) {
       const hasStatus = status === "all" || record.status === status;
       const haystack = [record.fullName, record.aliases, record.telegramUsername, record.fileNumber, record.nationality, record.residence, record.lastSeen].join(" ").toLocaleLowerCase("ru");
       return hasStatus && (!needle || haystack.includes(needle));
+    }).sort((a, b) => {
+      if (sort === "name") return (a.fullName || "").localeCompare(b.fullName || "", "ru");
+      if (sort === "priority") return ["critical", "high", "medium", "low"].indexOf(a.priority) - ["critical", "high", "medium", "low"].indexOf(b.priority);
+      return new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0);
     });
-  }, [records, query, status]);
+  }, [records, query, status, sort]);
 
   return (
     <main>
-      <section className="hero">
+      <section className="hero" id="top">
         <div className="hero__content">
           <div className="eyebrow">Открытый информационный реестр</div>
-          <h1>Публичная база<br />ориентировок A.O.G.D</h1>
-          <p>Поиск по опубликованным записям организации Agency Of Good Deeds. Используйте фильтры или номер досье.</p>
+          <h1>Информация,<br />которая имеет значение</h1>
+          <p>Официальный публичный реестр A.O.G.D для поиска по опубликованным ориентировкам и проверенным информационным записям.</p>
           <div className="search-box"><Icon name="search" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Имя, псевдоним, номер или место…" aria-label="Поиск по базе" />{query && <button onClick={() => setQuery("")} aria-label="Очистить поиск"><Icon name="close" size={17} /></button>}</div>
+          <div className="hero-actions"><button className="button button--primary" onClick={() => scrollToSection("registry")}>Перейти к реестру <Icon name="arrow" size={17} /></button><button className="button button--secondary" onClick={() => scrollToSection("report")}>Передать сведения</button></div>
         </div>
-        <div className="hero__seal"><Emblem /><span>International public records bureau</span></div>
+        <div className="hero__seal"><Emblem /><span>Public information & digital safety bureau</span><small>AOGD / Telegram security initiative</small></div>
       </section>
 
-      <section className="database-section">
+      <section className="registry-overview" aria-label="Сводка реестра">
+        <div><span>Публичных записей</span><strong>{records.length}</strong><small>доступно для поиска</small></div>
+        <div><span>В активном статусе</span><strong>{activeCount}</strong><small>требуют внимания</small></div>
+        <div><span>Статусов реестра</span><strong>{Object.keys(STATUS).length}</strong><small>единая классификация</small></div>
+        <div><span>Последнее обновление</span><strong className="overview-date">{lastUpdated}</strong><small>по данным публикаций</small></div>
+      </section>
+
+      <section className="database-section" id="registry">
         <div className="section-heading">
           <div><span className="eyebrow">Актуальные публикации</span><h2>Записи базы</h2></div>
           <div className="counter"><strong>{visible.length}</strong><span>найдено</span></div>
         </div>
-        <div className="toolbar" aria-label="Фильтры статуса">
-          {[{ value: "all", label: "Все записи" }, ...Object.entries(STATUS).map(([value, item]) => ({ value, label: item.label }))].map((item) => <button key={item.value} className={status === item.value ? "active" : ""} onClick={() => setStatus(item.value)}>{item.label}</button>)}
+        <div className="records-controls">
+          <div className="toolbar" aria-label="Фильтры статуса">
+            {[{ value: "all", label: "Все записи", count: records.length }, ...Object.entries(STATUS).map(([value, item]) => ({ value, label: item.label, count: statusCounts[value] || 0 }))].map((item) => <button key={item.value} className={status === item.value ? "active" : ""} onClick={() => setStatus(item.value)}>{item.label}<span>{item.count}</span></button>)}
+          </div>
+          <label className="sort-control"><span>Сортировка</span><select value={sort} onChange={(event) => setSort(event.target.value)}><option value="updated">Сначала обновлённые</option><option value="priority">По уровню внимания</option><option value="name">По имени</option></select></label>
         </div>
-        {mode === "local" && <div className="notice notice--info compact"><Icon name="info" /><span>Демо-режим: данные хранятся только в этом браузере. После подключения Cloudflare они будут общими и постоянными.</span></div>}
         {loading ? <div className="empty-state">Загрузка записей…</div> : visible.length ? <div className="records-grid">{visible.map((record) => <RecordCard key={record.id} record={record} onOpen={setSelected} />)}</div> : <div className="empty-state"><Icon name="search" size={28} /><h3>Ничего не найдено</h3><p>Измените запрос или выберите другой статус.</p></div>}
       </section>
-      <section className="legal-note"><Icon name="shield" /><div><h2>Важная информация</h2><p>A.O.G.D — самостоятельный проект и не является подразделением INTERPOL или государственного органа.</p></div></section>
+
+      <section className="principles-section" id="principles">
+        <div className="section-intro"><span className="eyebrow">Стандарт публичной работы</span><h2>Ответственность начинается<br />с точности информации</h2><p>Реестр создаётся как понятный и дисциплинированный инструмент: минимум лишних данных, ясный статус записи и возможность сообщить об ошибке.</p></div>
+        <div className="principles-grid">
+          <article><span className="principle-number">01</span><Icon name="check" /><h3>Проверяемость</h3><p>Основание публикации указывается прямо в досье, чтобы происхождение записи было понятно посетителю.</p></article>
+          <article><span className="principle-number">02</span><Icon name="shield" /><h3>Цифровая безопасность</h3><p>Наша задача — снизить риск для пользователей Telegram и помочь передать важную информацию безопасным способом.</p></article>
+          <article><span className="principle-number">03</span><Icon name="book" /><h3>Право на уточнение</h3><p>Ошибочные или устаревшие сведения можно направить на повторную проверку через официальный канал проекта.</p></article>
+        </div>
+      </section>
+
+      <section className="report-section" id="report">
+        <div className="report-card">
+          <div className="report-card__copy"><span className="eyebrow">Защищённый канал связи</span><h2>У вас есть значимые сведения?</h2><p>Сообщите команде A.O.G.D номер досье и только те факты, которые можно проверить. Не вступайте в контакт с человеком из ориентировки и не публикуйте личные данные в открытых комментариях.</p><div className="report-points"><span><Icon name="check" size={16} />Укажите номер записи</span><span><Icon name="check" size={16} />Приложите подтверждение</span><span><Icon name="check" size={16} />Сохраните конфиденциальность</span></div></div>
+          <a className="telegram-action" href="https://t.me/AgencyofGoodDeeds" target="_blank" rel="noreferrer"><Icon name="send" size={22} /><span><strong>Связаться в Telegram</strong><small>t.me/AgencyofGoodDeeds</small></span><Icon name="arrow" size={20} /></a>
+        </div>
+      </section>
+
+      <section className="help-section">
+        <div className="section-intro"><span className="eyebrow">Справочный центр</span><h2>Как устроен реестр</h2><p>Короткие ответы на вопросы, которые чаще всего возникают при просмотре публичных записей.</p></div>
+        <div className="faq-list">
+          <details><summary><span>Что означает статус записи?</span><Icon name="plus" size={18} /></summary><p>Статус показывает текущее состояние публикации: активный поиск, особое внимание, установленное местонахождение или архив.</p></details>
+          <details><summary><span>Как сообщить об ошибке в досье?</span><Icon name="plus" size={18} /></summary><p>Передайте номер досье и описание неточности через официальный Telegram-канал. Не отправляйте чувствительные сведения без необходимости.</p></details>
+          <details><summary><span>Как понять, что досье актуально?</span><Icon name="plus" size={18} /></summary><p>Проверьте текущий статус и дату обновления в открытом досье. Записи с завершённой проверкой переводятся в архив или получают новый статус.</p></details>
+        </div>
+      </section>
+
+      <section className="legal-note"><Icon name="shield" /><div><h2>Независимый информационный проект</h2><p>A.O.G.D не является подразделением INTERPOL или государственного органа. Реестр предназначен для общественной осведомлённости и цифровой безопасности пользователей Telegram.</p></div></section>
       {selected && <RecordDetail record={selected} onClose={() => setSelected(null)} />}
     </main>
   );
+}
+
+function PublicFooter() {
+  return <footer className="public-footer"><div className="footer-brand"><Emblem compact /><div><strong>A.O.G.D</strong><span>Agency Of Good Deeds</span><p>Public records & Telegram digital safety initiative</p></div></div><div className="footer-links"><div><strong>Навигация</strong><button onClick={() => scrollToSection("registry")}>Публичный реестр</button><button onClick={() => scrollToSection("principles")}>Принципы работы</button><button onClick={() => scrollToSection("report")}>Передать сведения</button></div><div><strong>Официальный канал</strong><a href="https://t.me/AgencyofGoodDeeds" target="_blank" rel="noreferrer">Telegram A.O.G.D</a><span>Только проверяемые сведения</span></div></div><div className="footer-bottom"><span>© {new Date().getFullYear()} A.O.G.D</span><span>Independent public information project</span><button onClick={() => scrollToSection("top")}>Наверх ↑</button></div></footer>;
 }
 
 function AdminLogin({ onSuccess, mode }) {
@@ -528,5 +611,5 @@ export default function App() {
     setComfort((current) => ({ ...current, [key]: value }));
   }
   if (MAINTENANCE_MODE && route !== "admin") return <MaintenancePage language={language} reduceMotion={comfort.reduceMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches} />;
-  return <div className="app"><Header route={route} theme={theme} onThemeChange={changeTheme} language={language} onLanguageChange={changeLanguage} comfort={comfort} onComfortChange={changeComfort} />{route === "admin" ? <AdminPanel records={records} setRecords={setRecords} mode={mode} token={token} setToken={setToken} /> : <PublicDatabase records={records} loading={loading} mode={mode} />}<footer><span>© {new Date().getFullYear()} A.O.G.D</span><span>Agency Of Good Deeds · Independent records project</span></footer></div>;
+  return <div className="app"><Header route={route} theme={theme} onThemeChange={changeTheme} language={language} onLanguageChange={changeLanguage} comfort={comfort} onComfortChange={changeComfort} />{route === "admin" ? <><AdminPanel records={records} setRecords={setRecords} mode={mode} token={token} setToken={setToken} /><footer className="admin-footer"><span>© {new Date().getFullYear()} A.O.G.D</span><span>Restricted administration workspace</span></footer></> : <><PublicDatabase records={records} loading={loading} mode={mode} /><PublicFooter /></>}</div>;
 }
