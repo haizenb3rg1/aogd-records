@@ -88,7 +88,7 @@ function Header({ route, theme, onThemeChange, language, onLanguageChange }) {
         <span><strong>A.O.G.D</strong><small>Agency Of Good Deeds</small></span>
       </button>
       <nav aria-label="Основная навигация">
-        <button className={route === "public" ? "active" : ""} onClick={() => go("public")}>База записей</button>
+        <button className={route === "public" ? "active" : ""} onClick={() => go("public")}>Открытые досье</button>
         <div className="theme-picker" aria-label="Тема оформления">
           <button className={theme === "light" ? "active" : ""} onClick={(event) => onThemeChange("light", event)} aria-label="Светлая тема" title="Светлая тема"><Icon name="sun" size={16} /></button>
           <button className={theme === "default" ? "active" : ""} onClick={(event) => onThemeChange("default", event)} aria-label="Стандартная синяя тема" title="Стандартная синяя тема"><Icon name="shield" size={16} /></button>

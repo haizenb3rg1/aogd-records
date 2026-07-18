@@ -3,7 +3,7 @@ import { useEffect } from "react";
 const RU_TO_EN = {
   "На главную": "Home",
   "Основная навигация": "Main navigation",
-  "База записей": "Records",
+  "Открытые досье": "Open dossiers",
   "Управление": "Admin",
   "Тема оформления": "Color theme",
   "Светлая тема": "Light theme",
