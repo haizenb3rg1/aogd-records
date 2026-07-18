@@ -340,3 +340,27 @@ html[data-theme="dark"] .photo-drop { background: #070b10; }
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
   ::view-transition-old(root), ::view-transition-new(root) { animation: none !important; }
 }
+
+.maintenance-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(circle at 50% 20%, rgba(42, 125, 255, .25), transparent 38%), linear-gradient(145deg, #06111f, #0a2340 55%, #06111f);
+  color: #fff;
+  text-align: center;
+}
+.maintenance-card {
+  width: min(620px, 100%);
+  padding: 48px 28px;
+  border: 1px solid rgba(126, 177, 255, .35);
+  border-radius: 28px;
+  background: rgba(7, 20, 37, .78);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, .35);
+  backdrop-filter: blur(18px);
+}
+.maintenance-card .emblem { margin: 0 auto 20px; }
+.maintenance-eyebrow { color: #7eb1ff; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.maintenance-card h1 { margin: 12px 0; font-size: clamp(36px, 7vw, 64px); }
+.maintenance-card > p:not(.maintenance-eyebrow) { margin: 0 auto 18px; max-width: 470px; color: #c9d9ee; font-size: 18px; line-height: 1.65; }
+.maintenance-card > span { color: #8196af; }

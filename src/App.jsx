@@ -385,6 +385,23 @@ function AdminPanel({ records, setRecords, mode, token, setToken }) {
   );
 }
 
+const MAINTENANCE_MODE = import.meta.env.VITE_MAINTENANCE_MODE === "true";
+
+function MaintenancePage({ language }) {
+  const isEnglish = language === "en";
+  return (
+    <main className="maintenance-page">
+      <div className="maintenance-card">
+        <Emblem />
+        <p className="maintenance-eyebrow">A.O.G.D · Agency Of Good Deeds</p>
+        <h1>{isEnglish ? "Technical maintenance" : "Технические работы"}</h1>
+        <p>{isEnglish ? "The portal is temporarily unavailable while we prepare an update." : "Портал временно закрыт, пока мы готовим обновление."}</p>
+        <span>{isEnglish ? "Please check back later." : "Пожалуйста, зайдите позже."}</span>
+      </div>
+    </main>
+  );
+}
+
 export default function App() {
   const [route, setRoute] = useState(window.location.hash === "#/admin" ? "admin" : "public");
   const [records, setRecords] = useState([]);
@@ -421,5 +438,6 @@ export default function App() {
     localStorage.setItem("aogd-language", nextLanguage);
     setLanguage(nextLanguage);
   }
+  if (MAINTENANCE_MODE) return <MaintenancePage language={language} />;
   return <div className="app"><Header route={route} theme={theme} onThemeChange={changeTheme} language={language} onLanguageChange={changeLanguage} />{route === "admin" ? <AdminPanel records={records} setRecords={setRecords} mode={mode} token={token} setToken={setToken} /> : <PublicDatabase records={records} loading={loading} mode={mode} />}<footer><span>© {new Date().getFullYear()} A.O.G.D</span><span>Agency Of Good Deeds · Independent records project</span></footer></div>;
 }
