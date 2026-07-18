@@ -448,13 +448,13 @@ function MaintenancePage({ language, reduceMotion }) {
           <Dither
             waveColor={[0.08, 0.3, 0.62]}
             disableAnimation={reduceMotion}
-            enableMouseInteraction={!reduceMotion}
-            mouseRadius={0.55}
-            colorNum={10}
+            enableMouseInteraction={false}
+            mouseRadius={0.5}
+            colorNum={18}
             pixelSize={2}
-            waveAmplitude={0.26}
-            waveFrequency={2.15}
-            waveSpeed={0.025}
+            waveAmplitude={0.27}
+            waveFrequency={1.55}
+            waveSpeed={0.17}
           />
         </Suspense>
       </div>
