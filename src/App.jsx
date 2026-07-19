@@ -368,8 +368,38 @@ function PublicDatabase({ records, loading, mode }) {
   );
 }
 
-function PublicFooter() {
-  return <footer className="public-footer"><div className="footer-brand"><Emblem compact /><div><strong>A.O.G.D</strong><span>Agency Of Good Deeds</span><p>Public records & Telegram digital safety initiative</p></div></div><div className="footer-links"><div><strong>Навигация</strong><button onClick={() => scrollToSection("registry")}>Публичный реестр</button><button onClick={() => scrollToSection("principles")}>Принципы работы</button><button onClick={() => scrollToSection("report")}>Передать сведения</button></div><div><strong>Официальный канал</strong><a href="https://t.me/AgencyofGoodDeeds" target="_blank" rel="noreferrer">Telegram A.O.G.D</a><span>Только проверяемые сведения</span></div></div><div className="footer-bottom"><span>© {new Date().getFullYear()} A.O.G.D</span><span>Independent public information project</span><button onClick={() => scrollToSection("top")}>Наверх ↑</button></div></footer>;
+function TermsModal({ language, required, onAccept, onClose }) {
+  const [confirmed, setConfirmed] = useState(false);
+  const isEnglish = language === "en";
+  return (
+    <div className="terms-backdrop" role="presentation">
+      <section className="terms-modal" role="dialog" aria-modal="true" aria-labelledby="terms-title">
+        <div className="terms-modal__header">
+          <div><span>A.O.G.D · NOTICE</span><h2 id="terms-title">{isEnglish ? "Terms of use" : "Условия использования"}</h2></div>
+          {!required && <button className="terms-close" onClick={onClose} aria-label={isEnglish ? "Close" : "Закрыть"}><Icon name="close" /></button>}
+        </div>
+        <div className="terms-modal__body">
+          <p className="terms-lead">{isEnglish ? "Please read these terms before viewing the public registry." : "Перед просмотром публичного реестра ознакомьтесь с условиями проекта."}</p>
+          <ol>
+            <li><strong>{isEnglish ? "Project status." : "Статус проекта."}</strong> {isEnglish ? "A.O.G.D is an independent satirical information project. It is not INTERPOL, a law-enforcement agency, a court, or an official wanted-person database." : "A.O.G.D — независимый сатирический информационный проект. Он не является INTERPOL, правоохранительным органом, судом или официальной базой розыска."}</li>
+            <li><strong>{isEnglish ? "Presentation." : "Характер подачи."}</strong> {isEnglish ? "Some records may use humorous, ironic, fictional or exaggerated wording. A publication is not a legal finding and must not be treated as proof of guilt or misconduct." : "Отдельные записи могут содержать шуточную, ироничную, вымышленную или преувеличенную подачу. Публикация не является юридическим выводом и не доказывает вину или нарушение."}</li>
+            <li><strong>{isEnglish ? "No harassment." : "Запрет травли."}</strong> {isEnglish ? "The project does not call for insults, threats, harassment, doxxing, stalking or attempts to contact people mentioned in records." : "Проект не призывает к оскорблениям, угрозам, травле, раскрытию закрытых данных, преследованию или попыткам связаться с упомянутыми людьми."}</li>
+            <li><strong>{isEnglish ? "Sources and media." : "Источники и материалы."}</strong> {isEnglish ? "Usernames and images are published only when represented as originating from open sources or provided by a person authorized to share them. Rights remain with their respective owners." : "Юзернеймы и изображения публикуются только как материалы из открытых источников либо как предоставленные лицом, имеющим право на их передачу. Права на материалы сохраняются за их владельцами."}</li>
+            <li><strong>{isEnglish ? "Corrections." : "Исправления."}</strong> {isEnglish ? "A person concerned may request verification, correction or removal through the official project channel." : "Заинтересованное лицо может запросить проверку, исправление или удаление материала через официальный канал проекта."}</li>
+          </ol>
+          <div className="terms-warning"><Icon name="shield" size={19} /><span>{isEnglish ? "Do not rely on this project as an official source. Verify material independently and comply with applicable law." : "Не используйте проект как официальный источник. Проверяйте сведения независимо и соблюдайте применимое законодательство."}</span></div>
+        </div>
+        <div className="terms-modal__footer">
+          <label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>{isEnglish ? "I have read and accept the terms of use" : "Я прочитал(а) и принимаю условия использования"}</span></label>
+          <button className="primary-button" disabled={!confirmed} onClick={onAccept}>{isEnglish ? "Accept and continue" : "Принять и продолжить"}</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PublicFooter({ language, onOpenTerms }) {
+  return <footer className="public-footer"><div className="footer-brand"><Emblem compact /><div><strong>A.O.G.D</strong><span>Agency Of Good Deeds</span><p>Public records & Telegram digital safety initiative</p></div></div><div className="footer-links"><div><strong>Навигация</strong><button onClick={() => scrollToSection("registry")}>Публичный реестр</button><button onClick={() => scrollToSection("principles")}>Принципы работы</button><button onClick={() => scrollToSection("report")}>Передать сведения</button></div><div><strong>Официальный канал</strong><a href="https://t.me/AgencyofGoodDeeds" target="_blank" rel="noreferrer">Telegram A.O.G.D</a><span>Только проверяемые сведения</span></div></div><div className="footer-bottom"><span>© {new Date().getFullYear()} A.O.G.D</span><span>Independent satirical information project</span><button onClick={onOpenTerms}>{language === "en" ? "Terms of use" : "Условия использования"}</button><button onClick={() => scrollToSection("top")}>Наверх ↑</button></div></footer>;
 }
 
 function AdminLogin({ onSuccess, mode }) {
@@ -563,6 +593,7 @@ export default function App() {
   const [records, setRecords] = useState([]);
   const [mode, setMode] = useState("unknown");
   const [loading, setLoading] = useState(true);
+  const [termsOpen, setTermsOpen] = useState(() => localStorage.getItem("aogd-terms-version") !== "2026-07-19");
   const [token, setToken] = useState(() => sessionStorage.getItem("aogd-admin-token") || "");
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem("aogd-theme");
@@ -610,6 +641,10 @@ export default function App() {
   function changeComfort(key, value) {
     setComfort((current) => ({ ...current, [key]: value }));
   }
+  function acceptTerms() {
+    localStorage.setItem("aogd-terms-version", "2026-07-19");
+    setTermsOpen(false);
+  }
   if (MAINTENANCE_MODE && route !== "admin") return <MaintenancePage language={language} reduceMotion={comfort.reduceMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches} />;
-  return <div className="app"><Header route={route} theme={theme} onThemeChange={changeTheme} language={language} onLanguageChange={changeLanguage} comfort={comfort} onComfortChange={changeComfort} />{route === "admin" ? <><AdminPanel records={records} setRecords={setRecords} mode={mode} token={token} setToken={setToken} /><footer className="admin-footer"><span>© {new Date().getFullYear()} A.O.G.D</span><span>Restricted administration workspace</span></footer></> : <><PublicDatabase records={records} loading={loading} mode={mode} /><PublicFooter /></>}</div>;
+  return <div className="app"><Header route={route} theme={theme} onThemeChange={changeTheme} language={language} onLanguageChange={changeLanguage} comfort={comfort} onComfortChange={changeComfort} />{route === "admin" ? <><AdminPanel records={records} setRecords={setRecords} mode={mode} token={token} setToken={setToken} /><footer className="admin-footer"><span>© {new Date().getFullYear()} A.O.G.D</span><span>Restricted administration workspace</span></footer></> : <><PublicDatabase records={records} loading={loading} mode={mode} /><PublicFooter language={language} onOpenTerms={() => setTermsOpen(true)} />{termsOpen && <TermsModal language={language} required={localStorage.getItem("aogd-terms-version") !== "2026-07-19"} onAccept={acceptTerms} onClose={() => setTermsOpen(false)} />}</>}</div>;
 }
