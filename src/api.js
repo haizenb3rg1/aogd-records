@@ -86,12 +86,20 @@ async function parseResponse(response) {
 
 export async function loadRecords() {
   try {
-    const response = await fetch("/api/records", { headers: { Accept: "application/json" } });
-    if (!response.ok) throw new Error("API unavailable");
-    const body = await parseResponse(response);
-    if (!Array.isArray(body.records)) throw new Error("Invalid API response");
+    const records = [];
+    let page = 0;
+    while (page < 5) {
+      const suffix = page ? `?page=${page}` : "";
+      const response = await fetch(`/api/records${suffix}`, { headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error("API unavailable");
+      const body = await parseResponse(response);
+      if (!Array.isArray(body.records)) throw new Error("Invalid API response");
+      records.push(...body.records);
+      if (!Number.isInteger(body.nextPage)) break;
+      page = body.nextPage;
+    }
     currentMode = "cloud";
-    return { records: body.records, mode: currentMode };
+    return { records, mode: currentMode };
   } catch (error) {
     if (isLocalPreview()) {
       currentMode = "local";
@@ -348,8 +356,11 @@ export function submitReceptionThread(data) {
   return receptionRequest("", { method: "POST", body: JSON.stringify(data) });
 }
 
-export function toggleReceptionInterest(id) {
-  return receptionRequest(`${encodeURIComponent(id)}/interest`, { method: "POST", body: "{}" });
+export function toggleReceptionInterest(id, interested) {
+  return receptionRequest(`${encodeURIComponent(id)}/interest`, {
+    method: "POST",
+    body: JSON.stringify({ interested }),
+  });
 }
 
 export function deleteMyReceptionThread(id) {

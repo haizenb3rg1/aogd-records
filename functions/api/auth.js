@@ -2,7 +2,6 @@ import {
   ApiError,
   adminCookie,
   assertSameOrigin,
-  auditAdmin,
   cleanupExpired,
   clearAdminCookie,
   createAdminSession,
@@ -10,6 +9,7 @@ import {
   isAdmin,
   json,
   parseCookies,
+  prepareAdminAudit,
   readJson,
   requireDatabase,
   safeError,
@@ -34,9 +34,10 @@ export async function onRequestPost({ request, env }) {
   try {
     assertSameOrigin(request);
     requireDatabase(env);
-    await enforceRateLimit(env, request, "admin-login", 8, 15 * 60);
+    await enforceRateLimit(env, request, "turnstile-admin-login", 30, 60);
     const body = await readJson(request, 8 * 1024);
     await verifyTurnstile(env, request, body.turnstileToken, "admin_login");
+    await enforceRateLimit(env, request, "admin-login", 8, 15 * 60);
     const [passwordValid, secondFactorValid] = await Promise.all([
       verifyAdminSecret(String(body.secret || ""), env),
       verifyAdminSecondFactor(body.otp, env),
@@ -44,9 +45,9 @@ export async function onRequestPost({ request, env }) {
     if (!passwordValid || !secondFactorValid) {
       throw new ApiError("Неверные данные администратора.", 401, "invalid_admin_credentials");
     }
-    const token = await createAdminSession(env);
     await cleanupExpired(env);
-    await auditAdmin(env, request, "admin.login");
+    const audit = await prepareAdminAudit(env, request, "admin.login");
+    const token = await createAdminSession(env, [audit]);
     return json(
       { authenticated: true },
       200,
@@ -62,12 +63,13 @@ export async function onRequestDelete({ request, env }) {
     assertSameOrigin(request);
     const db = requireDatabase(env);
     const token = parseCookies(request)[ADMIN_COOKIE];
-    if (token) {
-      await db.prepare("DELETE FROM admin_sessions WHERE token_hash = ?")
-        .bind(await sha256(token))
-        .run();
+    if (!token || !(await isAdmin(request, env))) {
+      return json({ authenticated: false }, 200, { "Set-Cookie": clearAdminCookie() });
     }
-    await auditAdmin(env, request, "admin.logout");
+    await enforceRateLimit(env, request, "admin-logout", 30, 60 * 60);
+    const remove = db.prepare("DELETE FROM admin_sessions WHERE token_hash = ?").bind(await sha256(token));
+    const audit = await prepareAdminAudit(env, request, "admin.logout");
+    await db.batch([remove, audit]);
     return json({ authenticated: false }, 200, { "Set-Cookie": clearAdminCookie() });
   } catch (error) {
     return safeError(error, request, "Не удалось завершить сеанс.");

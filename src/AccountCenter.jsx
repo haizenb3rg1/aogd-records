@@ -264,7 +264,7 @@ function ProfileSummary({ user, onUserChange, onReception, onSupport, onLogout }
         <span className="profile-staff-label">Назначения в A.O.G.D</span>
         <RoleBadges roles={user.roles} />
         <label className="presence-preference">
-          <input type="checkbox" checked={user.presenceVisible !== false} disabled={presenceBusy} onChange={changePresence} />
+          <input type="checkbox" checked={user.presenceVisible === true} disabled={presenceBusy} onChange={changePresence} />
           <span><strong>Показывать статус «в сети»</strong><small>Публикуется только общий статус. IP и точное время активности остаются скрытыми.</small></span>
         </label>
         {presenceError && <div className="account-message account-message--error">{presenceError}</div>}

@@ -1,6 +1,12 @@
-import { ApiError, json, safeError } from "../../_lib/security.js";
+import {
+  ApiError,
+  assertAllowedSearchParams,
+  json,
+  requireDatabase,
+  safeError,
+} from "../../_lib/security.js";
 
-const SAFE_KEY = /^records\/[0-9a-f-]{36}-[0-9]{10,16}\.(jpg|png|webp)$/i;
+const SAFE_KEY = /^records\/[0-9a-f-]{36}-(?:[0-9]{10,16}|[0-9a-f-]{36})\.(jpg|png|webp)$/i;
 const SAFE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function objectKey(params) {
@@ -17,8 +23,13 @@ function objectKey(params) {
 
 export async function onRequestGet({ env, params, request }) {
   try {
+    assertAllowedSearchParams(request);
     if (!env.MEDIA) throw new ApiError("Файл временно недоступен.", 503, "storage_unavailable");
-    const object = await env.MEDIA.get(objectKey(params));
+    const key = objectKey(params);
+    const db = requireDatabase(env);
+    const linked = await db.prepare("SELECT 1 AS present FROM records WHERE photo_key = ? LIMIT 1").bind(key).first();
+    if (!linked) throw new ApiError("Файл не найден.", 404, "not_found");
+    const object = await env.MEDIA.get(key);
     if (!object) throw new ApiError("Файл не найден.", 404, "not_found");
     const contentType = object.httpMetadata?.contentType || "";
     if (!SAFE_TYPES.has(contentType)) {
@@ -31,7 +42,7 @@ export async function onRequestGet({ env, params, request }) {
         status: 304,
         headers: {
           ETag: etag,
-          "Cache-Control": "public, max-age=31536000, immutable",
+          "Cache-Control": "public, max-age=300, must-revalidate",
           "Cross-Origin-Resource-Policy": "same-origin",
         },
       });
@@ -40,7 +51,7 @@ export async function onRequestGet({ env, params, request }) {
     object.writeHttpMetadata(headers);
     headers.set("Content-Type", contentType);
     headers.set("ETag", etag);
-    headers.set("Cache-Control", "public, max-age=31536000, immutable");
+    headers.set("Cache-Control", "public, max-age=300, must-revalidate");
     headers.set("X-Content-Type-Options", "nosniff");
     headers.set("Cross-Origin-Resource-Policy", "same-origin");
     headers.set("Content-Security-Policy", "default-src 'none'; sandbox");

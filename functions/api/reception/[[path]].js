@@ -1,7 +1,9 @@
 import {
   ApiError,
+  assertAllowedSearchParams,
   assertSameOrigin,
-  auditAdmin,
+  auditAdminRequired,
+  prepareAdminAudit,
   cleanText,
   enforceRateLimit,
   enforceSubjectRateLimit,
@@ -123,7 +125,14 @@ async function listPublic(request, env) {
       COALESCE(r.answered_at, r.published_at) DESC
     LIMIT 100
   `).bind(viewer?.id || "", viewer?.id || "").all();
-  return json({ threads: result.results.map((row) => publicThread(row, viewer?.id || "")) });
+  return json(
+    { threads: result.results.map((row) => publicThread(row, viewer?.id || "")) },
+    200,
+    {
+      "Cache-Control": viewer ? "private, no-store" : "public, max-age=30, must-revalidate",
+      Vary: "Cookie",
+    },
+  );
 }
 
 async function listMine(request, env) {
@@ -155,6 +164,9 @@ async function listAdmin(request, env) {
 export async function onRequestGet({ request, env, params }) {
   try {
     const action = route(params);
+    if (["public", "mine", "admin"].includes(action)) {
+      assertAllowedSearchParams(request);
+    }
     if (action === "public") return await listPublic(request, env);
     if (action === "mine") return await listMine(request, env);
     if (action === "admin") return await listAdmin(request, env);
@@ -167,10 +179,11 @@ export async function onRequestGet({ request, env, params }) {
 async function createThread(request, env) {
   const db = requireDatabase(env);
   const user = await requireVerifiedUser(request, env);
-  await enforceRateLimit(env, request, "reception-create", 8, 24 * 60 * 60);
-  await enforceSubjectRateLimit(env, "reception-user", user.id, 5, 24 * 60 * 60);
+  await enforceRateLimit(env, request, "turnstile-reception-submit", 30, 60);
   const body = await readJson(request, 24 * 1024);
   await verifyTurnstile(env, request, body.turnstileToken, "reception_submit");
+  await enforceRateLimit(env, request, "reception-create", 8, 24 * 60 * 60);
+  await enforceSubjectRateLimit(env, "reception-user", user.id, 5, 24 * 60 * 60);
 
   const category = cleanText(body.category, 32);
   const title = cleanText(body.title, 140, 6);
@@ -212,7 +225,7 @@ async function createThread(request, env) {
   ).run();
 
   if (env.SUPPORT_EMAIL && env.RESEND_API_KEY && env.EMAIL_FROM) {
-    sendEmail(env, {
+    await sendEmail(env, {
       to: env.SUPPORT_EMAIL,
       subject: `Новое обращение в приёмной A.O.G.D: ${title}`,
       text: `Номер: ${id}\nКатегория: ${category}\nВидимость: ${requestedVisibility}\n\nОткройте административную панель для рассмотрения.`,
@@ -226,6 +239,10 @@ async function toggleInterest(request, env, id) {
   const user = await requireVerifiedUser(request, env);
   await enforceRateLimit(env, request, "reception-interest", 40, 60 * 60);
   await enforceSubjectRateLimit(env, "reception-interest-user", user.id, 80, 24 * 60 * 60);
+  const body = await readJson(request, 2 * 1024);
+  if (typeof body.interested !== "boolean") {
+    throw new ApiError("Укажите желаемое состояние интереса.", 400, "invalid_interest_state");
+  }
   const thread = await db.prepare(`
     SELECT id FROM reception_threads
     WHERE id = ? AND visibility = 'public'
@@ -233,20 +250,17 @@ async function toggleInterest(request, env, id) {
       AND published_at IS NOT NULL
   `).bind(id).first();
   if (!thread) throw new ApiError("Публикация не найдена.", 404, "not_found");
-  const existing = await db.prepare(
-    "SELECT 1 AS found FROM reception_interests WHERE thread_id = ? AND user_id = ?",
-  ).bind(id, user.id).first();
-  if (existing) {
+  if (body.interested) {
+    await db.prepare("INSERT OR IGNORE INTO reception_interests (thread_id, user_id, created_at) VALUES (?, ?, ?)")
+      .bind(id, user.id, new Date().toISOString()).run();
+  } else {
     await db.prepare("DELETE FROM reception_interests WHERE thread_id = ? AND user_id = ?")
       .bind(id, user.id).run();
-  } else {
-    await db.prepare("INSERT INTO reception_interests (thread_id, user_id, created_at) VALUES (?, ?, ?)")
-      .bind(id, user.id, new Date().toISOString()).run();
   }
   const count = await db.prepare(
     "SELECT COUNT(*) AS total FROM reception_interests WHERE thread_id = ?",
   ).bind(id).first();
-  return json({ interested: !existing, interestCount: Number(count?.total || 0) });
+  return json({ interested: body.interested, interestCount: Number(count?.total || 0) });
 }
 
 async function revealAuthor(request, env, id) {
@@ -265,7 +279,7 @@ async function revealAuthor(request, env, id) {
   if (!row.is_anonymous) {
     throw new ApiError("Автор этой публикации не скрыт.", 409, "author_not_anonymous");
   }
-  await auditAdmin(env, request, "reception.author.reveal", id, { reason });
+  await auditAdminRequired(env, request, "reception.author.reveal", id, { reason });
   return json({
     author: {
       userId: row.user_id,
@@ -328,7 +342,7 @@ export async function onRequestPut({ request, env, params }) {
       ? current.published_at || now
       : null;
     const answeredAt = officialAnswer ? current.answered_at || now : null;
-    await db.prepare(`
+    const update = db.prepare(`
       UPDATE reception_threads
       SET status = ?, official_answer = ?, moderator_note = ?,
           published_at = ?, answered_at = ?, updated_at = ?
@@ -341,15 +355,16 @@ export async function onRequestPut({ request, env, params }) {
       answeredAt,
       now,
       id,
-    ).run();
-    await auditAdmin(env, request, "reception.thread.update", id, {
+    );
+    const audit = await prepareAdminAudit(env, request, "reception.thread.update", id, {
       fromStatus: current.status,
       toStatus: status,
       answerChanged: (current.official_answer || "") !== officialAnswer,
     });
+    await db.batch([update, audit]);
     if ((current.status !== status || (current.official_answer || "") !== officialAnswer)
       && env.RESEND_API_KEY && env.EMAIL_FROM) {
-      sendEmail(env, {
+      await sendEmail(env, {
         to: current.email,
         subject: `Обновление обращения A.O.G.D: ${current.title}`,
         text: `Статус вашего обращения изменён. Войдите в личный кабинет A.O.G.D, чтобы увидеть ответ администрации.\n\nНомер обращения: ${id}`,

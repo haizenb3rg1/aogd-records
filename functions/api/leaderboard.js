@@ -1,7 +1,8 @@
-import { json, requireDatabase, safeError } from "../_lib/security.js";
+import { assertAllowedSearchParams, json, requireDatabase, safeError } from "../_lib/security.js";
 
 export async function onRequestGet({ request, env }) {
   try {
+    assertAllowedSearchParams(request);
     const db = requireDatabase(env);
     const result = await db.prepare(`
       SELECT u.nickname, COUNT(s.id) AS approved_count, MAX(s.updated_at) AS last_approved_at
