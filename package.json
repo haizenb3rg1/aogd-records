@@ -2,11 +2,17 @@
   "name": "aogd-records",
   "private": true,
   "version": "1.0.0",
+  "packageManager": "pnpm@11.9.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "db:local:apply": "node scripts/cloudflare-local.mjs migrate",
+    "dev:cloudflare": "pnpm run build && node scripts/cloudflare-local.mjs dev",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "audit:prod": "pnpm audit --prod --audit-level high",
+    "test:security": "node scripts/security-smoke.mjs",
+    "check": "pnpm run test:security && pnpm run build && pnpm run audit:prod"
   },
   "dependencies": {
     "@react-three/fiber": "^9.6.1",
@@ -17,5 +23,8 @@
     "react-dom": "19.2.7",
     "three": "^0.185.1",
     "vite": "8.1.5"
+  },
+  "devDependencies": {
+    "wrangler": "^4.113.0"
   }
 }

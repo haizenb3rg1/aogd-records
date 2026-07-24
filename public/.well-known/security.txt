@@ -1,0 +1,5 @@
+Contact: https://t.me/AgencyofGoodDeeds
+Preferred-Languages: ru, en
+Canonical: https://aogd.site/.well-known/security.txt
+Policy: https://aogd.site/#/profile
+Expires: 2027-07-24T00:00:00Z

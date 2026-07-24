@@ -33,11 +33,8 @@ const demoRecords = [
 
 let currentMode = "unknown";
 
-function encodeAdminToken(value) {
-  const bytes = new TextEncoder().encode(value);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
+function isLocalPreview() {
+  return ["localhost", "127.0.0.1"].includes(window.location.hostname);
 }
 
 function getLocalRecords() {
@@ -77,7 +74,13 @@ async function localAuth(token) {
 async function parseResponse(response) {
   const type = response.headers.get("content-type") || "";
   const body = type.includes("application/json") ? await response.json() : null;
-  if (!response.ok) throw new Error(body?.error || `Ошибка запроса (${response.status})`);
+  if (!response.ok) {
+    const error = new Error(body?.error || `Ошибка запроса (${response.status})`);
+    error.code = body?.code || "";
+    error.requestId = body?.requestId || response.headers.get("X-Request-ID") || "";
+    if (error.code === "admin_auth_required") window.dispatchEvent(new Event("aogd-admin-session-expired"));
+    throw error;
+  }
   return body;
 }
 
@@ -89,20 +92,50 @@ export async function loadRecords() {
     if (!Array.isArray(body.records)) throw new Error("Invalid API response");
     currentMode = "cloud";
     return { records: body.records, mode: currentMode };
-  } catch {
-    currentMode = "local";
-    return { records: getLocalRecords(), mode: currentMode };
+  } catch (error) {
+    if (isLocalPreview()) {
+      currentMode = "local";
+      return { records: getLocalRecords(), mode: currentMode };
+    }
+    currentMode = "cloud";
+    return { records: [], mode: currentMode, error: error.message };
   }
 }
 
-export async function authenticate(token) {
-  if (currentMode === "local" || currentMode === "unknown") return localAuth(token);
+export async function authenticate(token, turnstileToken = "", otp = "") {
+  if (currentMode === "local") return localAuth(token);
   const response = await fetch("/api/auth", {
     method: "POST",
-    headers: { Authorization: `Bearer ${encodeAdminToken(token)}` },
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret: token, turnstileToken, otp }),
   });
   await parseResponse(response);
   return true;
+}
+
+export async function getAdminSession() {
+  if (currentMode === "local") return false;
+  try {
+    const response = await fetch("/api/auth", {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    const body = await parseResponse(response);
+    return Boolean(body.authenticated);
+  } catch {
+    return false;
+  }
+}
+
+export async function logoutAdmin() {
+  if (currentMode === "local") return;
+  const response = await fetch("/api/auth", {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  await parseResponse(response);
 }
 
 function fileToDataUrl(file) {
@@ -146,7 +179,7 @@ export async function saveRecord({ token, record, photo, removePhoto }) {
   const isEditing = Boolean(record.id);
   const response = await fetch(isEditing ? `/api/records/${encodeURIComponent(record.id)}` : "/api/records", {
     method: isEditing ? "PUT" : "POST",
-    headers: { Authorization: `Bearer ${encodeAdminToken(token)}` },
+    credentials: "same-origin",
     body: formData,
   });
   const body = await parseResponse(response);
@@ -162,7 +195,7 @@ export async function deleteRecord(token, id) {
 
   const response = await fetch(`/api/records/${encodeURIComponent(id)}`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${encodeAdminToken(token)}` },
+    credentials: "same-origin",
   });
   await parseResponse(response);
 }
@@ -174,4 +207,216 @@ export function resetLocalDemo() {
 
 export function resetLocalAdminPassword() {
   localStorage.removeItem(LOCAL_ADMIN_KEY);
+}
+
+async function accountRequest(path, options = {}) {
+  const response = await fetch(`/api/account/${path}`, {
+    credentials: "same-origin",
+    ...options,
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+  });
+  return parseResponse(response);
+}
+
+export async function getCurrentUser() {
+  try {
+    const response = await fetch("/api/account/me", { credentials: "same-origin", headers: { Accept: "application/json" } });
+    const body = await parseResponse(response);
+    return body.user || null;
+  } catch {
+    return null;
+  }
+}
+
+export function registerAccount(data) {
+  return accountRequest("register", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function resendVerificationCode(email) {
+  return accountRequest("resend-code", { method: "POST", body: JSON.stringify({ email }) });
+}
+
+export function verifyAccount(data) {
+  return accountRequest("verify", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function loginAccount(data) {
+  return accountRequest("login", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function logoutAccount() {
+  return accountRequest("logout", { method: "POST", body: "{}" });
+}
+
+export function changeAccountPassword(data) {
+  return accountRequest("change-password", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function deleteAccount(currentPassword) {
+  return accountRequest("delete-account", { method: "POST", body: JSON.stringify({ currentPassword }) });
+}
+
+export function requestPasswordReset(email, turnstileToken = "") {
+  return accountRequest("forgot-password", { method: "POST", body: JSON.stringify({ email, turnstileToken }) });
+}
+
+export function resetAccountPassword(data) {
+  return accountRequest("reset-password", { method: "POST", body: JSON.stringify(data) });
+}
+
+export async function submitSupportRequest(formData) {
+  const response = await fetch("/api/support", { method: "POST", credentials: "same-origin", body: formData });
+  return parseResponse(response);
+}
+
+export async function loadMySupportRequests() {
+  const response = await fetch("/api/support/mine", { credentials: "same-origin", headers: { Accept: "application/json" } });
+  const body = await parseResponse(response);
+  return body.requests || [];
+}
+
+export async function loadLeaderboard() {
+  try {
+    const response = await fetch("/api/leaderboard", { headers: { Accept: "application/json" } });
+    const body = await parseResponse(response);
+    return body.leaders || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function loadAdminSupportRequests(token) {
+  const response = await fetch("/api/support/admin", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  const body = await parseResponse(response);
+  return body.requests || [];
+}
+
+export async function updateSupportRequestStatus(token, id, status) {
+  const response = await fetch(`/api/support/admin/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+  return parseResponse(response);
+}
+
+export async function loadAdminSecurity() {
+  const response = await fetch("/api/admin/security", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  return parseResponse(response);
+}
+
+export async function revokeOtherAdminSessions() {
+  const response = await fetch("/api/admin/security", {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  return parseResponse(response);
+}
+
+async function receptionRequest(path, options = {}) {
+  const response = await fetch(`/api/reception${path ? `/${path}` : ""}`, {
+    credentials: "same-origin",
+    ...options,
+    headers: {
+      Accept: "application/json",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  return parseResponse(response);
+}
+
+export async function loadPublicReception() {
+  const body = await receptionRequest("public");
+  return body.threads || [];
+}
+
+export async function loadMyReception() {
+  const body = await receptionRequest("mine");
+  return body.threads || [];
+}
+
+export function submitReceptionThread(data) {
+  return receptionRequest("", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function toggleReceptionInterest(id) {
+  return receptionRequest(`${encodeURIComponent(id)}/interest`, { method: "POST", body: "{}" });
+}
+
+export function deleteMyReceptionThread(id) {
+  return receptionRequest(`mine/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function loadAdminReception() {
+  const body = await receptionRequest("admin");
+  return body.threads || [];
+}
+
+export function updateReceptionThread(id, data) {
+  return receptionRequest(`admin/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export function revealReceptionAuthor(id, reason) {
+  return receptionRequest(`admin/${encodeURIComponent(id)}/reveal-author`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+async function staffRequest(path, options = {}) {
+  const response = await fetch(`/api/staff/${path}`, {
+    credentials: "same-origin",
+    ...options,
+    headers: {
+      Accept: "application/json",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  return parseResponse(response);
+}
+
+export async function loadPublicStaff() {
+  const body = await staffRequest("public");
+  return body.staff || [];
+}
+
+export function sendStaffHeartbeat() {
+  return staffRequest("heartbeat", { method: "POST", body: "{}" });
+}
+
+export function updatePresencePreference(visible) {
+  return staffRequest("preference", { method: "PUT", body: JSON.stringify({ visible }) });
+}
+
+export function loadAdminPeople(query = "") {
+  const suffix = query ? `?q=${encodeURIComponent(query)}` : "";
+  return staffRequest(`admin${suffix}`);
+}
+
+export function updatePersonRoles(userId, roles) {
+  return staffRequest(`admin/users/${encodeURIComponent(userId)}/roles`, {
+    method: "PUT",
+    body: JSON.stringify({ roles }),
+  });
+}
+
+export function createStaffRole(data) {
+  return staffRequest("admin/roles", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function deleteStaffRole(slug) {
+  return staffRequest(`admin/roles/${encodeURIComponent(slug)}`, { method: "DELETE" });
 }
