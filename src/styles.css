@@ -146,7 +146,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .briefing-list > button:hover > svg { transform: translateX(3px); }
 .briefing-placeholder { min-height: 170px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
 .trust-panel { padding: 28px; position: relative; }
-.trust-panel::after { content: "VERIFIED WORKFLOW"; position: absolute; right: -22px; top: 44px; color: rgba(116,151,198,.08); font: 700 32px "Roboto Mono", monospace; transform: rotate(90deg); pointer-events: none; }
 .trust-panel h3 { margin: 0 0 12px; font-size: 24px; letter-spacing: -.025em; }
 .trust-panel > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
 .trust-panel ul { margin: 24px 0; padding: 0; display: grid; list-style: none; }
