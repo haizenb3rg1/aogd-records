@@ -644,10 +644,27 @@ function AdminSecurityCenter() {
     disabledUsers: "Отключённые аккаунты",
     limitedClients: "Активные ограничения",
   };
+  const configurationLabels = {
+    database: "D1 database",
+    mediaStorage: "R2 MEDIA",
+    adminToken: "Admin token",
+    adminSecondFactor: "Admin 2FA",
+    dedicatedRateLimitSecret: "Rate-limit secret",
+    dedicatedCodePepper: "Email-code pepper",
+    emailDelivery: "Resend",
+    supportNotifications: "Support inbox",
+    turnstileServer: "Turnstile server",
+    turnstileSite: "Turnstile site key",
+  };
+  const configuration = data ? {
+    ...data.configuration,
+    turnstileSite: Boolean(import.meta.env.VITE_TURNSTILE_SITE_KEY),
+  } : {};
   return <section className="admin-card security-center">
     <div className="admin-toolbar"><div><strong>Центр безопасности</strong><span>Состояние сеансов и обезличенный журнал действий.</span></div><div className="admin-actions"><button className="button button--secondary" onClick={reload}>Обновить</button><button className="button button--secondary" disabled={busy} onClick={revokeOthers}>Завершить другие админ-сессии</button></div></div>
     {error && <div className="form-error admin-error">{error}</div>}
     {data && <><div className="security-summary">{Object.entries(data.summary).map(([key, value]) => <div key={key}><span>{labels[key] || key}</span><strong>{value}</strong></div>)}</div>
+      <div className="configuration-status"><div className="configuration-status__heading"><strong>Production configuration</strong><span>Показывается только наличие настроек; значения никогда не передаются.</span></div><div className="configuration-status__grid">{Object.entries(configuration).map(([key, ready]) => <div key={key}><span>{configurationLabels[key] || key}</span><strong className={ready ? "status-ready" : "status-missing"}>{ready ? "Настроено" : "Не настроено"}</strong></div>)}</div></div>
       <div className="records-table-wrap"><table className="records-table"><thead><tr><th>Событие</th><th>Объект</th><th>Время</th><th>Request ID</th></tr></thead><tbody>{data.audit.map((item, index) => <tr key={`${item.createdAt}-${index}`}><td>{item.action}</td><td>{item.targetId || "—"}</td><td>{new Intl.DateTimeFormat("ru-RU", { dateStyle: "short", timeStyle: "medium" }).format(new Date(item.createdAt))}</td><td>{item.requestId || "—"}</td></tr>)}</tbody></table>{!data.audit.length && <div className="empty-state">Журнал пока пуст.</div>}</div></>}
   </section>;
 }

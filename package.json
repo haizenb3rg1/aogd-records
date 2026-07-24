@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "audit:prod": "pnpm audit --prod --audit-level high",
     "test:security": "node scripts/security-smoke.mjs",
-    "check": "pnpm run test:security && pnpm run build && pnpm run audit:prod"
+    "test:runtime": "node scripts/local-runtime-smoke.mjs",
+    "check": "pnpm run test:security && pnpm run build && pnpm run test:runtime && pnpm run audit:prod"
   },
   "dependencies": {
     "@react-three/fiber": "^9.6.1",

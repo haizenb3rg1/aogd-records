@@ -3,6 +3,7 @@ import {
   assertSameOrigin,
   auditAdmin,
   cleanupExpired,
+  configurationStatus,
   enforceRateLimit,
   json,
   parseCookies,
@@ -51,6 +52,7 @@ export async function onRequestGet({ request, env }) {
     ]);
     return json({
       summary: { activeAdminSessions, activeUserSessions, pendingSupport, pendingReception, disabledUsers, limitedClients },
+      configuration: configurationStatus(env),
       audit: audit.results.map((row) => ({
         action: row.action,
         targetId: row.target_id || "",
