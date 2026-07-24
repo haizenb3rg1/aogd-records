@@ -19,10 +19,10 @@
   "dependencies": {
     "@react-three/fiber": "^9.6.1",
     "@react-three/postprocessing": "^3.0.4",
-    "@vitejs/plugin-react": "6.0.3",
-    "postprocessing": "^6.39.2",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
+    "@vitejs/plugin-react": "6.0.4",
+    "postprocessing": "^6.39.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "three": "^0.185.1",
     "vite": "8.1.5"
   },
