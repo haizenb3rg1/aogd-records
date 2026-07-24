@@ -37,7 +37,7 @@ jobs:
 
       - run: pnpm run build -- --base=/aogd-records/
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
         with:
           enablement: true
 
