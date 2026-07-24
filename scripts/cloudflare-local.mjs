@@ -1,41 +1,40 @@
 import { execFileSync, spawn } from "node:child_process";
-import { copyFile, readFile, unlink } from "node:fs/promises";
-import { existsSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
 const root = path.resolve(import.meta.dirname, "..");
-const source = path.join(root, "wrangler.local.jsonc");
-const temporary = path.join(root, "wrangler.jsonc");
+const config = path.join(root, "wrangler.local.jsonc");
 const wranglerEntry = path.join(root, "node_modules", "wrangler", "bin", "wrangler.js");
 const mode = process.argv[2];
+const port = process.env.AOGD_LOCAL_PORT || "8788";
+const persistTo = process.env.AOGD_LOCAL_PERSIST_TO || "";
+const testBindings = process.env.AOGD_LOCAL_TEST_BINDINGS === "1"
+  ? [
+      "--binding", `RATE_LIMIT_SECRET=${crypto.randomUUID()}`,
+      "--binding", `CODE_PEPPER=${crypto.randomUUID()}`,
+    ]
+  : [];
 
 if (!["migrate", "dev"].includes(mode)) {
   console.error("Usage: node scripts/cloudflare-local.mjs migrate|dev");
   process.exit(2);
 }
 
-if (existsSync(temporary)) {
-  const current = await readFile(temporary, "utf8");
-  const local = await readFile(source, "utf8");
-  if (current !== local) {
-    console.error("Refusing to overwrite an existing wrangler.jsonc. Move it away and retry.");
-    process.exit(1);
-  }
-} else {
-  await copyFile(source, temporary);
-}
-
-let cleaning = false;
-async function cleanup() {
-  if (cleaning) return;
-  cleaning = true;
-  await unlink(temporary).catch(() => {});
-}
-
 const wranglerArgs = mode === "migrate"
-  ? ["d1", "migrations", "apply", "aogd-records-local", "--local"]
-  : ["pages", "dev", "dist"];
+  ? [
+      "d1", "migrations", "apply", "aogd-records-local", "--local", "--config", config,
+      ...(persistTo ? ["--persist-to", persistTo] : []),
+    ]
+  : [
+      "pages", "dev", "dist",
+      "--d1", "DB=00000000-0000-0000-0000-000000000000",
+      ...(process.env.AOGD_LOCAL_DISABLE_R2 === "1" ? [] : ["--r2", "MEDIA=aogd-records-media-local"]),
+      "--compatibility-date", "2026-07-23",
+      "--port", port,
+      "--show-interactive-dev-session", "false",
+      ...testBindings,
+      ...(persistTo ? ["--persist-to", persistTo] : []),
+    ];
 const child = spawn(process.execPath, [wranglerEntry, ...wranglerArgs], {
   cwd: root,
   stdio: "inherit",
@@ -60,13 +59,8 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     terminateChild(signal);
   });
 }
-process.on("exit", () => {
-  try { unlinkSync(temporary); } catch {}
-});
-
 const exitCode = await new Promise((resolve) => {
   child.once("exit", (code) => resolve(code ?? 1));
   child.once("error", () => resolve(1));
 });
-await cleanup();
 process.exit(exitCode);

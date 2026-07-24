@@ -1,7 +1,8 @@
 import {
   ApiError,
+  assertAllowedSearchParams,
   assertSameOrigin,
-  auditAdmin,
+  prepareAdminAudit,
   cleanText,
   enforceRateLimit,
   enforceSubjectRateLimit,
@@ -48,7 +49,7 @@ async function rolesForUsers(db, userIds) {
 }
 
 function presenceState(row, now = Date.now()) {
-  if (!Number(row.presence_visible ?? 1)) return "hidden";
+  if (!Number(row.presence_visible ?? 0)) return "hidden";
   if (!row.last_seen_at) return "offline";
   return now - new Date(row.last_seen_at).getTime() <= ONLINE_WINDOW_MS ? "online" : "offline";
 }
@@ -60,7 +61,7 @@ async function listPublicStaff(db) {
       u.nickname,
       an.id AS public_id,
       sp.last_seen_at,
-      COALESCE(sp.visible, 1) AS presence_visible,
+      COALESCE(sp.visible, 0) AS presence_visible,
       MIN(sr.priority) AS top_priority
     FROM users u
     JOIN account_numbers an ON an.user_id = u.id
@@ -134,12 +135,19 @@ async function allRoles(db) {
 
 export async function onRequestGet({ request, env, params }) {
   try {
-    const db = requireDatabase(env);
     const action = route(params);
     if (action === "public") {
-      return json({ staff: await listPublicStaff(db) });
+      assertAllowedSearchParams(request);
+      const db = requireDatabase(env);
+      return json(
+        { staff: await listPublicStaff(db) },
+        200,
+        { "Cache-Control": "public, max-age=30, must-revalidate" },
+      );
     }
     if (action === "admin") {
+      assertAllowedSearchParams(request, ["q"]);
+      const db = requireDatabase(env);
       await requireAdmin(request, env);
       await enforceRateLimit(env, request, "admin-staff-read", 120, 60);
       const query = cleanText(new URL(request.url).searchParams.get("q") || "", 64);
@@ -167,7 +175,7 @@ export async function onRequestPost({ request, env, params }) {
       const now = new Date().toISOString();
       await db.prepare(`
         INSERT INTO staff_presence (user_id, last_seen_at, visible, updated_at)
-        VALUES (?, ?, 1, ?)
+        VALUES (?, ?, 0, ?)
         ON CONFLICT(user_id) DO UPDATE SET
           last_seen_at = excluded.last_seen_at,
           updated_at = excluded.updated_at
@@ -183,11 +191,12 @@ export async function onRequestPost({ request, env, params }) {
       if (!ROLE_COLOR.test(color)) throw new ApiError("Укажите цвет в формате #RRGGBB.", 400, "invalid_role_color");
       const priority = Math.max(25, Math.min(150, Number.parseInt(body.priority, 10) || 80));
       const slug = `custom-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
-      await db.prepare(`
+      const create = db.prepare(`
         INSERT INTO staff_roles (slug, name, color, priority, is_system, created_at)
         VALUES (?, ?, ?, ?, 0, ?)
-      `).bind(slug, name, color, priority, new Date().toISOString()).run();
-      await auditAdmin(env, request, "staff.role.create", slug, { name, color, priority });
+      `).bind(slug, name, color, priority, new Date().toISOString());
+      const audit = await prepareAdminAudit(env, request, "staff.role.create", slug, { name, color, priority });
+      await db.batch([create, audit]);
       return json({ role: { slug, name, color, priority, system: false } }, 201);
     }
     throw new ApiError("Маршрут не найден.", 404, "not_found");
@@ -245,15 +254,31 @@ export async function onRequestPut({ request, env, params }) {
         }
       }
       const now = new Date().toISOString();
-      const statements = [db.prepare("DELETE FROM staff_assignments WHERE user_id = ?").bind(userId)];
+      const statements = [];
+      if (requested.length) {
+        const placeholders = requested.map(() => "?").join(",");
+        statements.push(
+          db.prepare(`DELETE FROM staff_assignments WHERE user_id = ? AND role_slug NOT IN (${placeholders})`)
+            .bind(userId, ...requested),
+        );
+      } else {
+        statements.push(db.prepare("DELETE FROM staff_assignments WHERE user_id = ?").bind(userId));
+      }
       for (const slug of requested) {
         statements.push(db.prepare(`
-          INSERT INTO staff_assignments (user_id, role_slug, assigned_at, assigned_by)
+          INSERT OR IGNORE INTO staff_assignments (user_id, role_slug, assigned_at, assigned_by)
           VALUES (?, ?, ?, 'admin-session')
         `).bind(userId, slug, now));
       }
-      await db.batch(statements);
-      await auditAdmin(env, request, "staff.roles.update", userId, { roles: requested });
+      statements.push(await prepareAdminAudit(env, request, "staff.roles.update", userId, { roles: requested }));
+      try {
+        await db.batch(statements);
+      } catch (error) {
+        if (String(error?.message || "").includes("last_owner")) {
+          throw new ApiError("Нельзя снять должность с последнего Owner.", 409, "last_owner");
+        }
+        throw error;
+      }
       return json({ ok: true, roles: requested });
     }
     throw new ApiError("Маршрут не найден.", 404, "not_found");
@@ -274,8 +299,9 @@ export async function onRequestDelete({ request, env, params }) {
     const role = await db.prepare("SELECT slug, is_system FROM staff_roles WHERE slug = ?").bind(slug).first();
     if (!role) throw new ApiError("Должность не найдена.", 404, "role_not_found");
     if (Number(role.is_system)) throw new ApiError("Системную должность нельзя удалить.", 409, "system_role");
-    await db.prepare("DELETE FROM staff_roles WHERE slug = ?").bind(slug).run();
-    await auditAdmin(env, request, "staff.role.delete", slug);
+    const remove = db.prepare("DELETE FROM staff_roles WHERE slug = ?").bind(slug);
+    const audit = await prepareAdminAudit(env, request, "staff.role.delete", slug);
+    await db.batch([remove, audit]);
     return json({ ok: true });
   } catch (error) {
     return safeError(error, request);

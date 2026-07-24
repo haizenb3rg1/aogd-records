@@ -95,7 +95,7 @@ export function PublicReception({ user, onBack, onOpenProfile }) {
     setBusyId(thread.id);
     setError("");
     try {
-      const result = await toggleReceptionInterest(thread.id);
+      const result = await toggleReceptionInterest(thread.id, !thread.interested);
       setThreads((current) => current.map((item) => item.id === thread.id
         ? { ...item, interested: result.interested, interestCount: result.interestCount }
         : item));

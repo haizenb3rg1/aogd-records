@@ -4,6 +4,7 @@ const CSP = [
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self'",
   "script-src 'self' https://challenges.cloudflare.com",
+  "script-src-attr 'none'",
   "connect-src 'self' https://challenges.cloudflare.com",
   "frame-src https://challenges.cloudflare.com",
   "base-uri 'none'",
@@ -16,7 +17,10 @@ const CSP = [
 ].join("; ");
 
 export async function onRequest(context) {
-  const requestId = context.request.headers.get("CF-Ray") || crypto.randomUUID();
+  const candidateRequestId = context.request.headers.get("CF-Ray") || "";
+  const requestId = /^[A-Za-z0-9._:-]{1,128}$/.test(candidateRequestId)
+    ? candidateRequestId
+    : crypto.randomUUID();
   if (context.data) context.data.requestId = requestId;
   const requestHeaders = new Headers(context.request.headers);
   requestHeaders.set("X-Request-ID", requestId);
@@ -34,6 +38,7 @@ export async function onRequest(context) {
   next.headers.set("X-Request-ID", requestId);
   next.headers.set("X-Content-Type-Options", "nosniff");
   next.headers.set("X-Frame-Options", "DENY");
+  next.headers.set("X-Permitted-Cross-Domain-Policies", "none");
   next.headers.set("X-XSS-Protection", "0");
   next.headers.set("Referrer-Policy", "no-referrer");
   next.headers.set("Permissions-Policy", "accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=()");
@@ -42,7 +47,7 @@ export async function onRequest(context) {
   next.headers.set("Cross-Origin-Resource-Policy", "same-origin");
   next.headers.set("Origin-Agent-Cluster", "?1");
   next.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-  if (new URL(context.request.url).pathname.startsWith("/api/")) {
+  if (new URL(context.request.url).pathname.startsWith("/api/") && !next.headers.has("Cache-Control")) {
     next.headers.set("Cache-Control", "no-store");
   }
   return next;

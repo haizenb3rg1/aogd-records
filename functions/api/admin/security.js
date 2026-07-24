@@ -1,12 +1,12 @@
 import {
   ApiError,
   assertSameOrigin,
-  auditAdmin,
   cleanupExpired,
   configurationStatus,
   enforceRateLimit,
   json,
   parseCookies,
+  prepareAdminAudit,
   requireAdmin,
   requireDatabase,
   safeError,
@@ -74,8 +74,9 @@ export async function onRequestDelete({ request, env }) {
     const token = parseCookies(request)[ADMIN_COOKIE];
     if (!token) throw new ApiError("Требуется вход администратора.", 401, "admin_auth_required");
     const currentHash = await sha256(token);
-    await db.prepare("DELETE FROM admin_sessions WHERE token_hash <> ?").bind(currentHash).run();
-    await auditAdmin(env, request, "admin.sessions.revoke_others");
+    const remove = db.prepare("DELETE FROM admin_sessions WHERE token_hash <> ?").bind(currentHash);
+    const audit = await prepareAdminAudit(env, request, "admin.sessions.revoke_others");
+    await db.batch([remove, audit]);
     return json({ ok: true });
   } catch (error) {
     return safeError(error, request, "Не удалось завершить другие сеансы.");
