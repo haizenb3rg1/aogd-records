@@ -255,6 +255,25 @@ export async function requireAdmin(request, env) {
   if (!(await isAdmin(request, env))) throw new ApiError("Требуется вход администратора.", 401, "admin_auth_required");
 }
 
+function hasConfiguredValue(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+export function configurationStatus(env = {}) {
+  const emailDelivery = hasConfiguredValue(env.RESEND_API_KEY) && hasConfiguredValue(env.EMAIL_FROM);
+  return {
+    database: Boolean(env.DB),
+    mediaStorage: Boolean(env.MEDIA),
+    adminToken: hasConfiguredValue(env.ADMIN_TOKEN) && String(env.ADMIN_TOKEN).length >= 20,
+    adminSecondFactor: hasConfiguredValue(env.ADMIN_TOTP_SECRET),
+    dedicatedRateLimitSecret: hasConfiguredValue(env.RATE_LIMIT_SECRET),
+    dedicatedCodePepper: hasConfiguredValue(env.CODE_PEPPER),
+    emailDelivery,
+    supportNotifications: emailDelivery && hasConfiguredValue(env.SUPPORT_EMAIL),
+    turnstileServer: hasConfiguredValue(env.TURNSTILE_SECRET_KEY),
+  };
+}
+
 export async function verifyAdminSecret(secret, env) {
   if (!env.ADMIN_TOKEN || String(env.ADMIN_TOKEN).length < 20) {
     throw new ApiError("Сервис администрирования не настроен.", 503, "admin_not_configured");

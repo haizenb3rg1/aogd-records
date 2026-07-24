@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import {
   assertSameOrigin,
+  configurationStatus,
   hashPassword,
   safeError,
   validateImageFile,
@@ -171,9 +172,49 @@ async function testImageSignature() {
   await assert.rejects(() => validateImageFile(spoofed, 1024));
 }
 
+function testConfigurationStatus() {
+  const secrets = {
+    ADMIN_TOKEN: "admin-token-that-must-never-leak",
+    ADMIN_TOTP_SECRET: "totp-secret-that-must-never-leak",
+    RATE_LIMIT_SECRET: "rate-limit-secret-that-must-never-leak",
+    CODE_PEPPER: "code-pepper-that-must-never-leak",
+    RESEND_API_KEY: "resend-key-that-must-never-leak",
+    EMAIL_FROM: "A.O.G.D <support@example.test>",
+    SUPPORT_EMAIL: "inbox@example.test",
+    TURNSTILE_SECRET_KEY: "turnstile-secret-that-must-never-leak",
+  };
+  const complete = configurationStatus({ DB: {}, MEDIA: {}, ...secrets });
+  assert.deepEqual(complete, {
+    database: true,
+    mediaStorage: true,
+    adminToken: true,
+    adminSecondFactor: true,
+    dedicatedRateLimitSecret: true,
+    dedicatedCodePepper: true,
+    emailDelivery: true,
+    supportNotifications: true,
+    turnstileServer: true,
+  });
+  const serialized = JSON.stringify(complete);
+  for (const value of Object.values(secrets)) assert.equal(serialized.includes(value), false);
+
+  assert.deepEqual(configurationStatus({ DB: {} }), {
+    database: true,
+    mediaStorage: false,
+    adminToken: false,
+    adminSecondFactor: false,
+    dedicatedRateLimitSecret: false,
+    dedicatedCodePepper: false,
+    emailDelivery: false,
+    supportNotifications: false,
+    turnstileServer: false,
+  });
+}
+
 await testMigrations();
 await testPasswords();
 testOriginProtection();
 await testSafeErrors();
 await testImageSignature();
+testConfigurationStatus();
 console.log("Security smoke tests passed.");
