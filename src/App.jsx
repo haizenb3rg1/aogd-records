@@ -586,7 +586,7 @@ function RecordForm({ initial, token, onSaved, onCancel }) {
   );
 }
 
-function AdminSupportManager({ token }) {
+function AdminSupportManager({ token, canUpdate = false }) {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -614,12 +614,12 @@ function AdminSupportManager({ token }) {
         <mark className={`request-status request-status--${item.status}`}>{labels[item.status]}</mark>
         <Icon name="arrow" size={17} />
       </button>
-      {openId === item.id && <div className="support-admin-detail"><p>{item.description}</p><dl><div><dt>Telegram</dt><dd>{item.telegramUsername || "Не указан"}</dd></div><div><dt>Номер</dt><dd>{item.id}</dd></div></dl>{item.photoUrl && <a href={item.photoUrl} target="_blank" rel="noreferrer"><img src={item.photoUrl} alt="Приложение к обращению" />Открыть изображение</a>}<div className="support-admin-actions"><span>Изменить статус:</span>{Object.entries(labels).map(([value, label]) => <button key={value} className={item.status === value ? "active" : ""} onClick={() => changeStatus(item, value)}>{label}</button>)}</div></div>}
+      {openId === item.id && <div className="support-admin-detail"><p>{item.description}</p><dl><div><dt>Telegram</dt><dd>{item.telegramUsername || "Не указан"}</dd></div><div><dt>Номер</dt><dd>{item.id}</dd></div></dl>{item.photoUrl && <a href={item.photoUrl} target="_blank" rel="noreferrer"><img src={item.photoUrl} alt="Приложение к обращению" />Открыть изображение</a>}{canUpdate && <div className="support-admin-actions"><span>Изменить статус:</span>{Object.entries(labels).map(([value, label]) => <button key={value} className={item.status === value ? "active" : ""} onClick={() => changeStatus(item, value)}>{label}</button>)}</div>}</div>}
     </article>)}{!requests.length && <div className="empty-state"><h3>Обращений пока нет</h3><p>Новые заявки появятся здесь.</p></div>}</div>
   </section>;
 }
 
-function AdminSecurityCenter() {
+function AdminSecurityCenter({ canRevoke = false }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -661,7 +661,7 @@ function AdminSecurityCenter() {
     turnstileSite: Boolean(import.meta.env.VITE_TURNSTILE_SITE_KEY),
   } : {};
   return <section className="admin-card security-center">
-    <div className="admin-toolbar"><div><strong>Центр безопасности</strong><span>Состояние сеансов и обезличенный журнал действий.</span></div><div className="admin-actions"><button className="button button--secondary" onClick={reload}>Обновить</button><button className="button button--secondary" disabled={busy} onClick={revokeOthers}>Завершить другие админ-сессии</button></div></div>
+    <div className="admin-toolbar"><div><strong>Центр безопасности</strong><span>Состояние сеансов и обезличенный журнал действий.</span></div><div className="admin-actions"><button className="button button--secondary" onClick={reload}>Обновить</button>{canRevoke && <button className="button button--secondary" disabled={busy} onClick={revokeOthers}>Завершить другие админ-сессии</button>}</div></div>
     {error && <div className="form-error admin-error">{error}</div>}
     {data && <><div className="security-summary">{Object.entries(data.summary).map(([key, value]) => <div key={key}><span>{labels[key] || key}</span><strong>{value}</strong></div>)}</div>
       <div className="configuration-status"><div className="configuration-status__heading"><strong>Production configuration</strong><span>Показывается только наличие настроек; значения никогда не передаются.</span></div><div className="configuration-status__grid">{Object.entries(configuration).map(([key, ready]) => <div key={key}><span>{configurationLabels[key] || key}</span><strong className={ready ? "status-ready" : "status-missing"}>{ready ? "Настроено" : "Не настроено"}</strong></div>)}</div></div>
@@ -675,6 +675,32 @@ function AdminPanel({ records, setRecords, mode, token, setToken }) {
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [section, setSection] = useState("records");
+  const [access, setAccess] = useState(mode === "local" ? { permissions: ["*"], nickname: "Local owner" } : null);
+  const has = (permission) => Boolean(access?.permissions?.includes("*") || access?.permissions?.includes(permission));
+  const sectionPermissions = {
+    records: ["records.create", "records.update", "records.delete"],
+    reception: ["reception.read", "reception.moderate", "reception.reveal_author"],
+    support: ["support.read", "support.update"],
+    team: ["staff.read", "staff.assign_roles", "staff.manage_roles", "staff.manage_permissions"],
+    security: ["security.read", "security.sessions.revoke"],
+  };
+  const canOpen = (name) => sectionPermissions[name].some(has);
+  useEffect(() => {
+    if (!token) { setAccess(null); return; }
+    if (mode === "local") { setAccess({ permissions: ["*"], nickname: "Local owner" }); return; }
+    let active = true;
+    getAdminSession().then((session) => {
+      if (!active) return;
+      if (session.authenticated) setAccess(session);
+      else setToken("");
+    });
+    return () => { active = false; };
+  }, [token, mode, setToken]);
+  useEffect(() => {
+    if (!access || canOpen(section)) return;
+    const next = Object.keys(sectionPermissions).find(canOpen);
+    if (next) setSection(next);
+  }, [access, section]);
   const visible = records.filter((record) => [record.fullName, record.fileNumber, record.aliases].join(" ").toLowerCase().includes(query.toLowerCase()));
   const sectionCopy = {
     records: ["Управление базой", "Добавляйте, обновляйте и архивируйте публичные записи."],
@@ -684,6 +710,7 @@ function AdminPanel({ records, setRecords, mode, token, setToken }) {
     security: ["Центр безопасности", "Контролируйте активные сеансы и журнал административных действий."],
   }[section];
   if (!token) return <AdminLogin mode={mode} onSuccess={setToken} />;
+  if (!access) return <main className="admin-shell"><div className="empty-state">Проверяем права доступа…</div></main>;
   async function logout() {
     try { await logoutAdmin(); }
     finally { setToken(""); }
@@ -698,13 +725,13 @@ function AdminPanel({ records, setRecords, mode, token, setToken }) {
   }
   return (
     <main className="admin-shell">
-      <div className="admin-heading"><div><div className="eyebrow">A.O.G.D control room</div><h1>{sectionCopy[0]}</h1><p>{sectionCopy[1]}</p></div><div className="admin-actions"><button className="button button--secondary" onClick={logout}><Icon name="logout" size={17} /> Выйти</button>{section === "records" && <button className="button button--primary" onClick={() => setCreating(true)}><Icon name="plus" size={17} /> Добавить запись</button>}</div></div>
+      <div className="admin-heading"><div><div className="eyebrow">A.O.G.D control room · {access.nickname || "Сотрудник"}</div><h1>{sectionCopy[0]}</h1><p>{sectionCopy[1]}</p></div><div className="admin-actions"><button className="button button--secondary" onClick={logout}><Icon name="logout" size={17} /> Выйти</button>{section === "records" && has("records.create") && <button className="button button--primary" onClick={() => setCreating(true)}><Icon name="plus" size={17} /> Добавить запись</button>}</div></div>
       <div className={`mode-card mode-card--${mode}`}><span className="mode-dot" /><div><strong>{mode === "cloud" ? "Постоянное хранилище подключено" : "Локальный демо-режим"}</strong><p>{mode === "cloud" ? "Данные и фотографии сохраняются в Cloudflare." : "Изменения видны только в этом браузере. Подключите Cloudflare перед рабочей публикацией."}</p></div></div>
-      <div className="admin-section-tabs"><button className={section === "records" ? "active" : ""} onClick={() => setSection("records")}>Публичные записи</button><button className={section === "reception" ? "active" : ""} onClick={() => setSection("reception")}>Приёмная</button><button className={section === "support" ? "active" : ""} onClick={() => setSection("support")}>Обращения поддержки</button><button className={section === "team" ? "active" : ""} onClick={() => setSection("team")}>Состав и должности</button><button className={section === "security" ? "active" : ""} onClick={() => setSection("security")}>Безопасность</button></div>
-      {section === "reception" ? <AdminReceptionManager /> : section === "support" ? <AdminSupportManager token={token} /> : section === "team" ? <AdminTeamManager /> : section === "security" ? <AdminSecurityCenter /> : <section className="admin-card">
+      <div className="admin-section-tabs">{canOpen("records") && <button className={section === "records" ? "active" : ""} onClick={() => setSection("records")}>Публичные записи</button>}{canOpen("reception") && <button className={section === "reception" ? "active" : ""} onClick={() => setSection("reception")}>Приёмная</button>}{canOpen("support") && <button className={section === "support" ? "active" : ""} onClick={() => setSection("support")}>Обращения поддержки</button>}{canOpen("team") && <button className={section === "team" ? "active" : ""} onClick={() => setSection("team")}>Состав и должности</button>}{canOpen("security") && <button className={section === "security" ? "active" : ""} onClick={() => setSection("security")}>Безопасность</button>}</div>
+      {section === "reception" ? <AdminReceptionManager canModerate={has("reception.moderate")} canRevealAuthor={has("reception.reveal_author")} /> : section === "support" ? <AdminSupportManager token={token} canUpdate={has("support.update")} /> : section === "team" ? <AdminTeamManager /> : section === "security" ? <AdminSecurityCenter canRevoke={has("security.sessions.revoke")} /> : <section className="admin-card">
         <div className="admin-toolbar"><div className="search-box search-box--small"><Icon name="search" size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Найти запись…" /></div><span>{visible.length} записей</span></div>
         {error && <div className="form-error admin-error">{error}</div>}
-        <div className="records-table-wrap"><table className="records-table"><thead><tr><th>Запись</th><th>Номер</th><th>Статус</th><th>Обновлено</th><th>Действия</th></tr></thead><tbody>{visible.map((record) => <tr key={record.id}><td><div className="table-person"><Portrait record={record} /><div><strong>{record.fullName}</strong><span>{record.aliases || "Без псевдонимов"}</span></div></div></td><td>{record.fileNumber}</td><td><StatusBadge status={record.status} /></td><td>{record.updatedAt ? new Intl.DateTimeFormat(localStorage.getItem("aogd-language") === "en" ? "en-US" : "ru-RU").format(new Date(record.updatedAt)) : "—"}</td><td><div className="row-actions"><button className="icon-button" onClick={() => setEditing(record)} title="Изменить"><Icon name="edit" size={18} /></button><button className="icon-button danger" onClick={() => remove(record)} title="Удалить"><Icon name="trash" size={18} /></button></div></td></tr>)}</tbody></table>{!visible.length && <div className="empty-state"><h3>Записей пока нет</h3><p>Создайте первую публикацию.</p></div>}</div>
+        <div className="records-table-wrap"><table className="records-table"><thead><tr><th>Запись</th><th>Номер</th><th>Статус</th><th>Обновлено</th><th>Действия</th></tr></thead><tbody>{visible.map((record) => <tr key={record.id}><td><div className="table-person"><Portrait record={record} /><div><strong>{record.fullName}</strong><span>{record.aliases || "Без псевдонимов"}</span></div></div></td><td>{record.fileNumber}</td><td><StatusBadge status={record.status} /></td><td>{record.updatedAt ? new Intl.DateTimeFormat(localStorage.getItem("aogd-language") === "en" ? "en-US" : "ru-RU").format(new Date(record.updatedAt)) : "—"}</td><td><div className="row-actions">{has("records.update") && <button className="icon-button" onClick={() => setEditing(record)} title="Изменить"><Icon name="edit" size={18} /></button>}{has("records.delete") && <button className="icon-button danger" onClick={() => remove(record)} title="Удалить"><Icon name="trash" size={18} /></button>}</div></td></tr>)}</tbody></table>{!visible.length && <div className="empty-state"><h3>Записей пока нет</h3><p>Создайте первую публикацию.</p></div>}</div>
         {mode === "local" && <button className="text-button" onClick={() => { const message = localStorage.getItem("aogd-language") === "en" ? "Restore the demo record? Current local records will be replaced." : "Вернуть демонстрационную запись? Текущие локальные записи будут заменены."; if (window.confirm(message)) setRecords(resetLocalDemo()); }}>Восстановить демонстрационные данные</button>}
       </section>}
       {(creating || editing) && <RecordForm initial={editing || emptyRecord} token={token} onSaved={saved} onCancel={() => { setEditing(null); setCreating(false); }} />}
@@ -781,7 +808,10 @@ export default function App() {
       .then(async (result) => {
         setRecords(result.records);
         setMode(result.mode);
-        if (result.mode === "cloud" && await getAdminSession()) setToken("server-session");
+        if (result.mode === "cloud") {
+          const session = await getAdminSession();
+          if (session.authenticated) setToken("server-session");
+        }
       })
       .finally(() => setLoading(false));
   }, []);

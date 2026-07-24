@@ -6,6 +6,7 @@ import {
   clearAdminCookie,
   createAdminSession,
   enforceRateLimit,
+  getAdminAccess,
   isAdmin,
   json,
   parseCookies,
@@ -24,7 +25,8 @@ const ADMIN_COOKIE = "__Host-aogd_admin";
 export async function onRequestGet({ request, env }) {
   try {
     requireDatabase(env);
-    return json({ authenticated: await isAdmin(request, env) });
+    const access = await getAdminAccess(request, env);
+    return json(access || { authenticated: false, permissions: [], roles: [] });
   } catch (error) {
     return safeError(error, request);
   }
@@ -49,7 +51,7 @@ export async function onRequestPost({ request, env }) {
     const audit = await prepareAdminAudit(env, request, "admin.login");
     const token = await createAdminSession(env, [audit]);
     return json(
-      { authenticated: true },
+      { authenticated: true, kind: "owner-session", nickname: "Owner", roles: ["owner"], permissions: ["*"] },
       200,
       { "Set-Cookie": adminCookie(token) },
     );

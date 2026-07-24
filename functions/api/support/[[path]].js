@@ -12,7 +12,7 @@ import {
   json,
   normalizeEmail,
   readJson,
-  requireAdmin,
+  requirePermission,
   requireDatabase,
   readFormData,
   safeError,
@@ -104,7 +104,7 @@ async function storedPhotoResponse(request, env, db, id) {
   `).bind(id).first();
   if (!metadata?.has_photo) throw new ApiError("Файл не найден.", 404, "not_found");
   const user = await getCurrentUser(request, env);
-  if (!user || user.id !== metadata.user_id) await requireAdmin(request, env);
+  if (!user || user.id !== metadata.user_id) await requirePermission(request, env, "support.read");
   const row = await db.prepare("SELECT photo_data FROM support_requests WHERE id = ?").bind(id).first();
   const photo = decodeStoredPhoto(row?.photo_data);
   if (!photo) throw new ApiError("Файл не найден.", 404, "not_found");
@@ -154,7 +154,7 @@ export async function onRequestGet({ request, env, params }) {
       return json({ requests: result.results.map((row) => mapRequest(row, false)) });
     }
     if (action === "admin") {
-      await requireAdmin(request, env);
+      await requirePermission(request, env, "support.read");
       await enforceRateLimit(env, request, "admin-support-read", 120, 60 * 60);
       const result = await db.prepare(`
         ${SELECT_REQUESTS}
@@ -236,7 +236,7 @@ export async function onRequestPut({ request, env, params }) {
   try {
     assertSameOrigin(request);
     const db = requireDatabase(env);
-    await requireAdmin(request, env);
+    await requirePermission(request, env, "support.update");
     await enforceRateLimit(env, request, "admin-support-update", 120, 60 * 60);
     const parts = route(params).split("/").filter(Boolean);
     if (parts[0] !== "admin" || !parts[1]) throw new ApiError("Маршрут не найден.", 404, "not_found");

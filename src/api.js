@@ -123,16 +123,22 @@ export async function authenticate(token, turnstileToken = "", otp = "") {
 }
 
 export async function getAdminSession() {
-  if (currentMode === "local") return false;
+  if (currentMode === "local") return { authenticated: false, permissions: [], roles: [] };
   try {
     const response = await fetch("/api/auth", {
       credentials: "same-origin",
       headers: { Accept: "application/json" },
     });
     const body = await parseResponse(response);
-    return Boolean(body.authenticated);
+    return {
+      authenticated: Boolean(body.authenticated),
+      kind: body.kind || "",
+      nickname: body.nickname || "",
+      permissions: Array.isArray(body.permissions) ? body.permissions : [],
+      roles: Array.isArray(body.roles) ? body.roles : [],
+    };
   } catch {
-    return false;
+    return { authenticated: false, permissions: [], roles: [] };
   }
 }
 
@@ -426,6 +432,13 @@ export function updatePersonRoles(userId, roles) {
 
 export function createStaffRole(data) {
   return staffRequest("admin/roles", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function updateStaffRole(slug, data) {
+  return staffRequest(`admin/roles/${encodeURIComponent(slug)}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
 }
 
 export function deleteStaffRole(slug) {

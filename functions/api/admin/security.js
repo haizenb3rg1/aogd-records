@@ -7,7 +7,7 @@ import {
   json,
   parseCookies,
   prepareAdminAudit,
-  requireAdmin,
+  requirePermission,
   requireDatabase,
   safeError,
   sha256,
@@ -24,7 +24,7 @@ async function count(db, sql, ...bindings) {
 export async function onRequestGet({ request, env }) {
   try {
     const db = requireDatabase(env);
-    await requireAdmin(request, env);
+    await requirePermission(request, env, "security.read");
     await enforceRateLimit(env, request, "admin-security-read", 120, 60 * 60);
     await cleanupExpired(env);
     const now = new Date().toISOString();
@@ -70,11 +70,11 @@ export async function onRequestDelete({ request, env }) {
   try {
     assertSameOrigin(request);
     const db = requireDatabase(env);
-    await requireAdmin(request, env);
+    await requirePermission(request, env, "security.sessions.revoke");
     const token = parseCookies(request)[ADMIN_COOKIE];
-    if (!token) throw new ApiError("Требуется вход администратора.", 401, "admin_auth_required");
-    const currentHash = await sha256(token);
-    const remove = db.prepare("DELETE FROM admin_sessions WHERE token_hash <> ?").bind(currentHash);
+    const remove = token
+      ? db.prepare("DELETE FROM admin_sessions WHERE token_hash <> ?").bind(await sha256(token))
+      : db.prepare("DELETE FROM admin_sessions");
     const audit = await prepareAdminAudit(env, request, "admin.sessions.revoke_others");
     await db.batch([remove, audit]);
     return json({ ok: true });

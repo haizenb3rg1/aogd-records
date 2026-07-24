@@ -10,9 +10,11 @@ import {
   json,
   readJson,
   requestId,
-  requireAdmin,
+  accessHasPermission,
+  requirePermission,
   requireDatabase,
   safeError,
+  STAFF_PERMISSIONS,
 } from "../../_lib/security.js";
 
 const ONLINE_WINDOW_MS = 3 * 60 * 1000;
@@ -30,7 +32,16 @@ function publicRole(row) {
     color: row.color,
     priority: Number(row.priority),
     system: Boolean(row.is_system),
+    permissions: Array.isArray(row.permissions) ? row.permissions : [],
   };
+}
+
+function normalizedPermissions(value) {
+  const permissions = [...new Set(Array.isArray(value) ? value.map(String) : [])];
+  if (permissions.length > STAFF_PERMISSIONS.length || permissions.some((item) => !STAFF_PERMISSIONS.includes(item))) {
+    throw new ApiError("Список разрешений содержит неизвестное действие.", 400, "invalid_permissions");
+  }
+  return permissions;
 }
 
 async function rolesForUsers(db, userIds) {
@@ -126,11 +137,17 @@ async function listAdminPeople(db, query) {
 
 async function allRoles(db) {
   const result = await db.prepare(`
-    SELECT slug, name, color, priority, is_system
-    FROM staff_roles
-    ORDER BY priority ASC, name ASC
+    SELECT sr.slug, sr.name, sr.color, sr.priority, sr.is_system, srp.permission
+    FROM staff_roles sr
+    LEFT JOIN staff_role_permissions srp ON srp.role_slug = sr.slug
+    ORDER BY sr.priority ASC, sr.name ASC, srp.permission ASC
   `).all();
-  return (result.results || []).map(publicRole);
+  const grouped = new Map();
+  for (const row of result.results || []) {
+    if (!grouped.has(row.slug)) grouped.set(row.slug, publicRole({ ...row, permissions: [] }));
+    if (row.permission) grouped.get(row.slug).permissions.push(row.permission);
+  }
+  return [...grouped.values()];
 }
 
 export async function onRequestGet({ request, env, params }) {
@@ -148,11 +165,11 @@ export async function onRequestGet({ request, env, params }) {
     if (action === "admin") {
       assertAllowedSearchParams(request, ["q"]);
       const db = requireDatabase(env);
-      await requireAdmin(request, env);
+      const access = await requirePermission(request, env, "staff.read");
       await enforceRateLimit(env, request, "admin-staff-read", 120, 60);
       const query = cleanText(new URL(request.url).searchParams.get("q") || "", 64);
       const [people, roles] = await Promise.all([listAdminPeople(db, query), allRoles(db)]);
-      return json({ people, roles });
+      return json({ people, roles, access, permissionCatalog: STAFF_PERMISSIONS });
     }
     throw new ApiError("Маршрут не найден.", 404, "not_found");
   } catch (error) {
@@ -183,21 +200,30 @@ export async function onRequestPost({ request, env, params }) {
       return json({ ok: true });
     }
     if (action === "admin/roles") {
-      await requireAdmin(request, env);
+      await requirePermission(request, env, "staff.manage_roles");
       await enforceRateLimit(env, request, "admin-role-create", 15, 60 * 60);
       const body = await readJson(request, 8 * 1024);
       const name = cleanText(body.name, 28, 2);
       const color = String(body.color || "").toLowerCase();
       if (!ROLE_COLOR.test(color)) throw new ApiError("Укажите цвет в формате #RRGGBB.", 400, "invalid_role_color");
       const priority = Math.max(25, Math.min(150, Number.parseInt(body.priority, 10) || 80));
+      const permissions = normalizedPermissions(body.permissions);
+      if (permissions.length) await requirePermission(request, env, "staff.manage_permissions");
       const slug = `custom-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
       const create = db.prepare(`
         INSERT INTO staff_roles (slug, name, color, priority, is_system, created_at)
         VALUES (?, ?, ?, ?, 0, ?)
       `).bind(slug, name, color, priority, new Date().toISOString());
-      const audit = await prepareAdminAudit(env, request, "staff.role.create", slug, { name, color, priority });
-      await db.batch([create, audit]);
-      return json({ role: { slug, name, color, priority, system: false } }, 201);
+      const statements = [create];
+      const now = new Date().toISOString();
+      for (const permission of permissions) {
+        statements.push(db.prepare(`
+          INSERT INTO staff_role_permissions (role_slug, permission, created_at) VALUES (?, ?, ?)
+        `).bind(slug, permission, now));
+      }
+      statements.push(await prepareAdminAudit(env, request, "staff.role.create", slug, { name, color, priority, permissions }));
+      await db.batch(statements);
+      return json({ role: { slug, name, color, priority, system: false, permissions } }, 201);
     }
     throw new ApiError("Маршрут не найден.", 404, "not_found");
   } catch (error) {
@@ -227,9 +253,40 @@ export async function onRequestPut({ request, env, params }) {
       `).bind(user.id, body.visible ? 1 : 0, now).run();
       return json({ ok: true, visible: body.visible });
     }
+    const roleMatch = /^admin\/roles\/([^/]+)$/.exec(action);
+    if (roleMatch) {
+      await requirePermission(request, env, "staff.manage_permissions");
+      await enforceRateLimit(env, request, "admin-role-update", 40, 60 * 60);
+      const slug = decodeURIComponent(roleMatch[1]);
+      if (slug === "owner") throw new ApiError("Права Owner всегда полные и не изменяются.", 409, "owner_permissions_immutable");
+      const role = await db.prepare("SELECT slug FROM staff_roles WHERE slug = ?").bind(slug).first();
+      if (!role) throw new ApiError("Должность не найдена.", 404, "role_not_found");
+      const body = await readJson(request, 12 * 1024);
+      const permissions = normalizedPermissions(body.permissions);
+      const name = cleanText(body.name, 28, 2);
+      const color = String(body.color || "").toLowerCase();
+      if (!ROLE_COLOR.test(color)) throw new ApiError("Укажите цвет в формате #RRGGBB.", 400, "invalid_role_color");
+      const priority = Math.max(15, Math.min(150, Number.parseInt(body.priority, 10) || 80));
+      const now = new Date().toISOString();
+      const statements = [
+        db.prepare("UPDATE staff_roles SET name = ?, color = ?, priority = ? WHERE slug = ?")
+          .bind(name, color, priority, slug),
+        db.prepare("DELETE FROM staff_role_permissions WHERE role_slug = ?").bind(slug),
+      ];
+      for (const permission of permissions) {
+        statements.push(db.prepare(`
+          INSERT INTO staff_role_permissions (role_slug, permission, created_at) VALUES (?, ?, ?)
+        `).bind(slug, permission, now));
+      }
+      statements.push(await prepareAdminAudit(env, request, "staff.role.permissions.update", slug, {
+        name, color, priority, permissions,
+      }));
+      await db.batch(statements);
+      return json({ role: { slug, name, color, priority, permissions } });
+    }
     const match = /^admin\/users\/([^/]+)\/roles$/.exec(action);
     if (match) {
-      await requireAdmin(request, env);
+      const access = await requirePermission(request, env, "staff.assign_roles");
       await enforceRateLimit(env, request, "admin-role-assign", 60, 60 * 60);
       const userId = decodeURIComponent(match[1]);
       const body = await readJson(request, 8 * 1024);
@@ -239,15 +296,19 @@ export async function onRequestPut({ request, env, params }) {
       }
       const user = await db.prepare("SELECT id FROM users WHERE id = ?").bind(userId).first();
       if (!user) throw new ApiError("Пользователь не найден.", 404, "user_not_found");
+      const existingRoles = await db.prepare("SELECT role_slug FROM staff_assignments WHERE user_id = ?")
+        .bind(userId).all();
+      const previouslyOwner = (existingRoles.results || []).some((row) => row.role_slug === "owner");
+      if ((requested.includes("owner") || previouslyOwner) && !accessHasPermission(access, "staff.manage_permissions")) {
+        throw new ApiError("Назначать или снимать Owner может только владелец.", 403, "owner_assignment_forbidden");
+      }
       if (requested.length) {
         const placeholders = requested.map(() => "?").join(",");
         const valid = await db.prepare(`SELECT slug FROM staff_roles WHERE slug IN (${placeholders})`)
           .bind(...requested).all();
         if ((valid.results || []).length !== requested.length) throw new ApiError("Одна из должностей не существует.", 400, "unknown_role");
       }
-      const hadOwner = await db.prepare("SELECT 1 AS present FROM staff_assignments WHERE user_id = ? AND role_slug = 'owner'")
-        .bind(userId).first();
-      if (hadOwner && !requested.includes("owner")) {
+      if (previouslyOwner && !requested.includes("owner")) {
         const ownerCount = await db.prepare("SELECT COUNT(*) AS total FROM staff_assignments WHERE role_slug = 'owner'").first();
         if (Number(ownerCount?.total || 0) <= 1) {
           throw new ApiError("Нельзя снять должность с последнего Owner.", 409, "last_owner");
@@ -267,8 +328,8 @@ export async function onRequestPut({ request, env, params }) {
       for (const slug of requested) {
         statements.push(db.prepare(`
           INSERT OR IGNORE INTO staff_assignments (user_id, role_slug, assigned_at, assigned_by)
-          VALUES (?, ?, ?, 'admin-session')
-        `).bind(userId, slug, now));
+          VALUES (?, ?, ?, ?)
+        `).bind(userId, slug, now, access.userId || "owner-session"));
       }
       statements.push(await prepareAdminAudit(env, request, "staff.roles.update", userId, { roles: requested }));
       try {
@@ -293,7 +354,7 @@ export async function onRequestDelete({ request, env, params }) {
     const db = requireDatabase(env);
     const match = /^admin\/roles\/([^/]+)$/.exec(route(params));
     if (!match) throw new ApiError("Маршрут не найден.", 404, "not_found");
-    await requireAdmin(request, env);
+    await requirePermission(request, env, "staff.manage_roles");
     await enforceRateLimit(env, request, "admin-role-delete", 15, 60 * 60);
     const slug = decodeURIComponent(match[1]);
     const role = await db.prepare("SELECT slug, is_system FROM staff_roles WHERE slug = ?").bind(slug).first();
