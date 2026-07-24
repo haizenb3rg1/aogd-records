@@ -428,7 +428,7 @@ function PublicDatabase({ records, loading, mode, onOpenSupport }) {
   );
 }
 
-function TermsModal({ language, required, onAccept, onClose }) {
+function TermsModal({ language, onAccept }) {
   const [confirmed, setConfirmed] = useState(false);
   const isEnglish = language === "en";
   return (
@@ -436,7 +436,6 @@ function TermsModal({ language, required, onAccept, onClose }) {
       <section className="terms-modal" role="dialog" aria-modal="true" aria-labelledby="terms-title">
         <div className="terms-modal__header">
           <div><span>A.O.G.D · NOTICE</span><h2 id="terms-title">{isEnglish ? "Terms of use" : "Условия использования"}</h2></div>
-          {!required && <button className="terms-close" onClick={onClose} aria-label={isEnglish ? "Close" : "Закрыть"}><Icon name="close" /></button>}
         </div>
         <div className="terms-modal__body">
           <p className="terms-lead">{isEnglish ? "Please read these terms before viewing the public registry." : "Перед просмотром публичного реестра ознакомьтесь с условиями проекта."}</p>
@@ -807,5 +806,5 @@ export default function App() {
     setTermsOpen(false);
   }
   if (MAINTENANCE_MODE && route === "public") return <MaintenancePage language={language} reduceMotion={comfort.reduceMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches} />;
-  return <div className="app"><Header route={route} user={currentUser} theme={theme} onThemeChange={changeTheme} language={language} onLanguageChange={changeLanguage} comfort={comfort} onComfortChange={changeComfort} />{route !== "admin" && <StaffPresence user={currentUser} />}{route === "admin" ? <><AdminPanel records={records} setRecords={setRecords} mode={mode} token={token} setToken={setToken} /><footer className="admin-footer"><span>© {new Date().getFullYear()} A.O.G.D</span><span>Restricted administration workspace</span></footer></> : route === "profile" ? <><AccountCenter user={currentUser} onUserChange={setCurrentUser} onBack={() => go("public")} /><footer className="admin-footer"><span>© {new Date().getFullYear()} A.O.G.D</span><span>Member support workspace</span></footer></> : route === "reception" ? <><PublicReception user={currentUser} onBack={() => go("public")} onOpenProfile={() => go("profile")} /><PublicFooter language={language} onOpenTerms={() => setTermsOpen(true)} onOpenSupport={() => go("profile")} onOpenReception={() => go("reception")} />{termsOpen && <TermsModal language={language} required={localStorage.getItem("aogd-terms-version") !== TERMS_VERSION} onAccept={acceptTerms} onClose={() => setTermsOpen(false)} />}</> : <><PublicDatabase records={records} loading={loading} mode={mode} onOpenSupport={() => go("profile")} /><PublicFooter language={language} onOpenTerms={() => setTermsOpen(true)} onOpenSupport={() => go("profile")} onOpenReception={() => go("reception")} />{termsOpen && <TermsModal language={language} required={localStorage.getItem("aogd-terms-version") !== TERMS_VERSION} onAccept={acceptTerms} onClose={() => setTermsOpen(false)} />}</>}</div>;
+  return <div className="app"><Header route={route} user={currentUser} theme={theme} onThemeChange={changeTheme} language={language} onLanguageChange={changeLanguage} comfort={comfort} onComfortChange={changeComfort} />{route !== "admin" && <StaffPresence user={currentUser} />}{route === "admin" ? <><AdminPanel records={records} setRecords={setRecords} mode={mode} token={token} setToken={setToken} /><footer className="admin-footer"><span>© {new Date().getFullYear()} A.O.G.D</span><span>Restricted administration workspace</span></footer></> : route === "profile" ? <><AccountCenter user={currentUser} onUserChange={setCurrentUser} onBack={() => go("public")} /><footer className="admin-footer"><span>© {new Date().getFullYear()} A.O.G.D</span><span>Member support workspace</span></footer></> : route === "reception" ? <><PublicReception user={currentUser} onBack={() => go("public")} onOpenProfile={() => go("profile")} /><PublicFooter language={language} onOpenTerms={() => setTermsOpen(true)} onOpenSupport={() => go("profile")} onOpenReception={() => go("reception")} />{termsOpen && <TermsModal language={language} onAccept={acceptTerms} />}</> : <><PublicDatabase records={records} loading={loading} mode={mode} onOpenSupport={() => go("profile")} /><PublicFooter language={language} onOpenTerms={() => setTermsOpen(true)} onOpenSupport={() => go("profile")} onOpenReception={() => go("reception")} />{termsOpen && <TermsModal language={language} onAccept={acceptTerms} />}</>}</div>;
 }
