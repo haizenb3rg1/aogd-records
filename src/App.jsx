@@ -1,8 +1,28 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 // A.O.G.D public portal entrypoint.
 import { flushSync } from "react-dom";
-import { authenticate, deleteRecord, loadRecords, resetLocalAdminPassword, resetLocalDemo, saveRecord } from "./api.js";
+import {
+  authenticate,
+  deleteRecord,
+  getAdminSession,
+  getCurrentUser,
+  loadAdminSupportRequests,
+  loadAdminSecurity,
+  loadLeaderboard,
+  loadRecords,
+  logoutAdmin,
+  resetLocalAdminPassword,
+  resetLocalDemo,
+  revokeOtherAdminSessions,
+  saveRecord,
+  updateSupportRequestStatus,
+} from "./api.js";
 import { useInterfaceLanguage } from "./i18n.js";
+import AccountCenter from "./AccountCenter.jsx";
+import AdminTeamManager from "./AdminTeamManager.jsx";
+import { AdminReceptionManager, PublicReception } from "./ReceptionCenter.jsx";
+import StaffPresence from "./StaffPresence.jsx";
+import TurnstileWidget, { turnstileEnabled } from "./TurnstileWidget.jsx";
 
 const Dither = lazy(() => import("./Dither.jsx"));
 
@@ -82,13 +102,28 @@ function Emblem({ compact = false }) {
 }
 
 const ADMIN_HASH = "#/aogd-vault-7m4k9p";
+const PROFILE_HASH = "#/profile";
+const RECEPTION_HASH = "#/reception";
 
 function isAdminLocation() {
   return window.location.hash === ADMIN_HASH;
 }
 
+function currentRoute() {
+  if (isAdminLocation()) return "admin";
+  if (window.location.hash === PROFILE_HASH) return "profile";
+  if (window.location.hash === RECEPTION_HASH) return "reception";
+  return "public";
+}
+
 function go(route) {
-  window.location.hash = route === "admin" ? ADMIN_HASH.slice(1) : "/";
+  window.location.hash = route === "admin"
+    ? ADMIN_HASH.slice(1)
+    : route === "profile"
+      ? PROFILE_HASH.slice(1)
+      : route === "reception"
+        ? RECEPTION_HASH.slice(1)
+        : "/";
 }
 
 function scrollToSection(id) {
@@ -142,7 +177,7 @@ function SettingsPanel({ theme, onThemeChange, comfort, onComfortChange, onClose
   );
 }
 
-function Header({ route, theme, onThemeChange, language, onLanguageChange, comfort, onComfortChange }) {
+function Header({ route, user, theme, onThemeChange, language, onLanguageChange, comfort, onComfortChange }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   return (
     <><header className="site-header">
@@ -152,17 +187,18 @@ function Header({ route, theme, onThemeChange, language, onLanguageChange, comfo
       </button>
       <nav aria-label="Основная навигация">
         {route === "public" ? <>
-          <button className="header-nav-link" onClick={() => scrollToSection("registry")}>Реестр</button>
+          <button className="header-nav-link" onClick={() => scrollToSection("leaderboard")}>Лидеры</button>
+          <button className="header-nav-link" onClick={() => go("reception")}>Приёмная</button>
           <button className="header-nav-link" onClick={() => scrollToSection("principles")}>Принципы</button>
-          <button className="header-report-link" onClick={() => scrollToSection("report")}>Передать сведения</button>
-        </> : <button className="header-nav-link" onClick={() => go("public")}>Открытые досье</button>}
+          <button className="header-report-link" onClick={() => go("profile")}><Icon name="user" size={15} />{user?.nickname || "Профиль"}</button>
+        </> : <><button className="header-nav-link" onClick={() => go("public")}>На главную</button>{route === "reception" && <button className="header-report-link" onClick={() => go("profile")}><Icon name="user" size={15} />{user?.nickname || "Профиль"}</button>}</>}
         <button className="settings-button" onClick={() => setSettingsOpen(true)} aria-label="Настройки" title="Настройки"><Icon name="settings" size={17} /></button>
         <div className="language-picker" aria-label="Language">
           <button className={language === "ru" ? "active" : ""} onClick={() => onLanguageChange("ru")} aria-label="Русский язык" title="Русский">RU</button>
           <button className={language === "en" ? "active" : ""} onClick={() => onLanguageChange("en")} aria-label="English language" title="English">EN</button>
         </div>
       </nav>
-    </header>{settingsOpen && <SettingsPanel theme={theme} onThemeChange={onThemeChange} comfort={comfort} onComfortChange={onComfortChange} onClose={() => setSettingsOpen(false)} />}</>
+    </header>{route === "public" && <div className="service-strip" aria-label="Статус информационной системы"><span className="service-strip__code">AOGD / PUBLIC INFORMATION SERVICE</span><span><i /> Система работает штатно</span><span>Защищённое соединение</span><span className="service-strip__edition">EDITION 01 · 2026</span></div>}{settingsOpen && <SettingsPanel theme={theme} onThemeChange={onThemeChange} comfort={comfort} onComfortChange={onComfortChange} onClose={() => setSettingsOpen(false)} />}</>
   );
 }
 
@@ -277,11 +313,14 @@ function RecordDetail({ record, onClose }) {
   );
 }
 
-function PublicDatabase({ records, loading, mode }) {
+function PublicDatabase({ records, loading, mode, onOpenSupport }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const [sort, setSort] = useState("updated");
   const [selected, setSelected] = useState(null);
+  const [leaders, setLeaders] = useState([]);
+
+  useEffect(() => { loadLeaderboard().then(setLeaders); }, []);
 
   const statusCounts = useMemo(() => records.reduce((counts, record) => ({ ...counts, [record.status]: (counts[record.status] || 0) + 1 }), {}), [records]);
   const activeCount = (statusCounts.wanted || 0) + (statusCounts.priority || 0);
@@ -289,6 +328,7 @@ function PublicDatabase({ records, loading, mode }) {
     const dates = records.map((record) => new Date(record.updatedAt || "")).filter((date) => !Number.isNaN(date.getTime())).sort((a, b) => b - a);
     return dates[0] ? new Intl.DateTimeFormat(localStorage.getItem("aogd-language") === "en" ? "en-US" : "ru-RU", { day: "2-digit", month: "short", year: "numeric" }).format(dates[0]) : "—";
   }, [records]);
+  const recentRecords = useMemo(() => [...records].sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0)).slice(0, 3), [records]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase("ru");
@@ -311,9 +351,17 @@ function PublicDatabase({ records, loading, mode }) {
           <h1>Информация,<br />которая имеет значение</h1>
           <p>Официальный публичный реестр A.O.G.D для поиска по опубликованным ориентировкам и проверенным информационным записям.</p>
           <div className="search-box"><Icon name="search" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Имя, псевдоним, номер или место…" aria-label="Поиск по базе" />{query && <button onClick={() => setQuery("")} aria-label="Очистить поиск"><Icon name="close" size={17} /></button>}</div>
-          <div className="hero-actions"><button className="button button--primary" onClick={() => scrollToSection("registry")}>Перейти к реестру <Icon name="arrow" size={17} /></button><button className="button button--secondary" onClick={() => scrollToSection("report")}>Передать сведения</button></div>
+          <div className="hero-actions"><button className="button button--primary" onClick={() => scrollToSection("leaderboard")}>Список лидеров <Icon name="arrow" size={17} /></button><button className="button button--secondary" onClick={onOpenSupport}>Профиль и поддержка</button></div>
         </div>
         <div className="hero__seal"><Emblem /><span>Public information & digital safety bureau</span><small>AOGD / Telegram security initiative</small></div>
+      </section>
+
+      <section className="leaderboard-section" id="leaderboard">
+        <div className="section-heading">
+          <div><span className="eyebrow">Вклад сообщества</span><h2>Лидеры по одобренным заявкам</h2><p>В рейтинге отображаются только подтверждённые аккаунты. Содержание обращений остаётся закрытым.</p></div>
+          <button className="button button--secondary" onClick={onOpenSupport}>Подать заявку</button>
+        </div>
+        {leaders.length ? <div className="leaderboard-list">{leaders.map((leader) => <article className={`leader-row leader-row--${leader.rank}`} key={leader.nickname}><span className="leader-rank">{leader.rank <= 3 ? ["Ⅰ", "Ⅱ", "Ⅲ"][leader.rank - 1] : String(leader.rank).padStart(2, "0")}</span><div className="leader-avatar">{leader.nickname.slice(0, 2).toUpperCase()}</div><div className="leader-name"><strong>{leader.nickname}</strong><small>Подтверждённый участник</small></div><div className="leader-score"><strong>{leader.approvedCount}</strong><span>одобрено</span></div></article>)}</div> : <div className="leaderboard-empty"><Icon name="shield" size={26} /><div><strong>Рейтинг формируется</strong><span>Здесь появятся участники после одобрения первых заявок.</span></div></div>}
       </section>
 
       <section className="registry-overview" aria-label="Сводка реестра">
@@ -321,6 +369,18 @@ function PublicDatabase({ records, loading, mode }) {
         <div><span>В активном статусе</span><strong>{activeCount}</strong><small>требуют внимания</small></div>
         <div><span>Статусов реестра</span><strong>{Object.keys(STATUS).length}</strong><small>единая классификация</small></div>
         <div><span>Последнее обновление</span><strong className="overview-date">{lastUpdated}</strong><small>по данным публикаций</small></div>
+      </section>
+
+      <section className="operational-briefing" aria-label="Оперативная сводка">
+        <div className="briefing-feed">
+          <div className="briefing-heading"><div><span className="eyebrow">Информационный бюллетень</span><h2>Оперативная сводка</h2></div><span>Последние обновления реестра</span></div>
+          {recentRecords.length ? <div className="briefing-list">{recentRecords.map((record, index) => <button key={record.id} onClick={() => setSelected(record)}><span className="briefing-index">{String(index + 1).padStart(2, "0")}</span><div><strong>{record.fullName}</strong><small>{record.fileNumber}</small></div><StatusBadge status={record.status} /><time>{record.updatedAt ? new Intl.DateTimeFormat(localStorage.getItem("aogd-language") === "en" ? "en-US" : "ru-RU", { day: "2-digit", month: "short" }).format(new Date(record.updatedAt)) : "—"}</time><Icon name="arrow" size={16} /></button>)}</div> : <div className="briefing-placeholder">Сводка появится после первой публикации.</div>}
+        </div>
+        <aside className="trust-panel">
+          <span className="eyebrow">Контур доверия</span><h3>Контроль публикаций</h3><p>Каждая заявка проходит закрытую проверку до изменения публичного реестра.</p>
+          <ul><li><Icon name="check" size={18} /><div><strong>Подтверждённые аккаунты</strong><span>Регистрация с проверкой электронной почты</span></div></li><li><Icon name="shield" size={18} /><div><strong>Ручная модерация</strong><span>Решение принимает администрация проекта</span></div></li><li><Icon name="clock" size={18} /><div><strong>Статусы обращений</strong><span>Участник видит ход рассмотрения в профиле</span></div></li></ul>
+          <button className="trust-panel__action" onClick={onOpenSupport}>Открыть центр поддержки <Icon name="arrow" size={16} /></button>
+        </aside>
       </section>
 
       <section className="database-section" id="registry">
@@ -348,8 +408,8 @@ function PublicDatabase({ records, loading, mode }) {
 
       <section className="report-section" id="report">
         <div className="report-card">
-          <div className="report-card__copy"><span className="eyebrow">Защищённый канал связи</span><h2>У вас есть значимые сведения?</h2><p>Сообщите команде A.O.G.D номер досье и только те факты, которые можно проверить. Не вступайте в контакт с человеком из ориентировки и не публикуйте личные данные в открытых комментариях.</p><div className="report-points"><span><Icon name="check" size={16} />Укажите номер записи</span><span><Icon name="check" size={16} />Приложите подтверждение</span><span><Icon name="check" size={16} />Сохраните конфиденциальность</span></div></div>
-          <a className="telegram-action" href="https://t.me/AgencyofGoodDeeds" target="_blank" rel="noreferrer"><Icon name="send" size={22} /><span><strong>Связаться в Telegram</strong><small>t.me/AgencyofGoodDeeds</small></span><Icon name="arrow" size={20} /></a>
+          <div className="report-card__copy"><span className="eyebrow">Центр поддержки</span><h2>Нужна помощь или хотите подать заявку?</h2><p>Форма находится в отдельном личном разделе. Зарегистрированные пользователи видят историю рассмотрения и участвуют в рейтинге после одобрения заявки.</p><div className="report-points"><span><Icon name="check" size={16} />Статус рассмотрения</span><span><Icon name="check" size={16} />Фото и скриншоты</span><span><Icon name="check" size={16} />Конфиденциальная обработка</span></div></div>
+          <button className="telegram-action" type="button" onClick={onOpenSupport}><Icon name="user" size={22} /><span><strong>Открыть личный раздел</strong><small>Профиль · обращения · поддержка</small></span><Icon name="arrow" size={20} /></button>
         </div>
       </section>
 
@@ -357,7 +417,7 @@ function PublicDatabase({ records, loading, mode }) {
         <div className="section-intro"><span className="eyebrow">Справочный центр</span><h2>Как устроен реестр</h2><p>Короткие ответы на вопросы, которые чаще всего возникают при просмотре публичных записей.</p></div>
         <div className="faq-list">
           <details><summary><span>Что означает статус записи?</span><Icon name="plus" size={18} /></summary><p>Статус показывает текущее состояние публикации: активный поиск, особое внимание, установленное местонахождение или архив.</p></details>
-          <details><summary><span>Как сообщить об ошибке в досье?</span><Icon name="plus" size={18} /></summary><p>Передайте номер досье и описание неточности через официальный Telegram-канал. Не отправляйте чувствительные сведения без необходимости.</p></details>
+          <details><summary><span>Как сообщить об ошибке в досье?</span><Icon name="plus" size={18} /></summary><p>Передайте номер досье и описание неточности через официальный канал или центр поддержки. Не отправляйте личную или заведомо недостоверную информацию.</p></details>
           <details><summary><span>Как понять, что досье актуально?</span><Icon name="plus" size={18} /></summary><p>Проверьте текущий статус и дату обновления в открытом досье. Записи с завершённой проверкой переводятся в архив или получают новый статус.</p></details>
         </div>
       </section>
@@ -385,6 +445,9 @@ function TermsModal({ language, required, onAccept, onClose }) {
             <li><strong>{isEnglish ? "Presentation." : "Характер подачи."}</strong> {isEnglish ? "Some records may use humorous, ironic, fictional or exaggerated wording. A publication is not a legal finding and must not be treated as proof of guilt or misconduct." : "Отдельные записи могут содержать шуточную, ироничную, вымышленную или преувеличенную подачу. Публикация не является юридическим выводом и не доказывает вину или нарушение."}</li>
             <li><strong>{isEnglish ? "No harassment." : "Запрет травли."}</strong> {isEnglish ? "The project does not call for insults, threats, harassment, doxxing, stalking or attempts to contact people mentioned in records." : "Проект не призывает к оскорблениям, угрозам, травле, раскрытию закрытых данных, преследованию или попыткам связаться с упомянутыми людьми."}</li>
             <li><strong>{isEnglish ? "Sources and media." : "Источники и материалы."}</strong> {isEnglish ? "Usernames and images are published only when represented as originating from open sources or provided by a person authorized to share them. Rights remain with their respective owners." : "Юзернеймы и изображения публикуются только как материалы из открытых источников либо как предоставленные лицом, имеющим право на их передачу. Права на материалы сохраняются за их владельцами."}</li>
+            <li><strong>{isEnglish ? "User submissions." : "Материалы пользователей."}</strong> {isEnglish ? "A sender confirms that they are authorized to submit the material and are responsible for its accuracy and lawful origin. Submissions containing private, knowingly false or unlawfully obtained information may be rejected or removed." : "Отправитель подтверждает право на передачу материала и отвечает за его достоверность и законность получения. Заявки с личной, заведомо недостоверной или полученной незаконным способом информацией могут быть отклонены или удалены."}</li>
+            <li><strong>{isEnglish ? "Reception and anonymity." : "Приёмная и анонимность."}</strong> {isEnglish ? "Public questions are reviewed before publication. The anonymous option hides the nickname from visitors, but an authorized administrator may identify the author to investigate abuse; the reason for that action is recorded in the security audit log." : "Публичные вопросы проходят модерацию до публикации. Анонимный режим скрывает никнейм от посетителей, однако авторизованный администратор может установить автора для расследования нарушений; причина такого действия записывается в журнал безопасности."}</li>
+            <li><strong>{isEnglish ? "Staff roles and presence." : "Должности и присутствие сотрудников."}</strong> {isEnglish ? "Staff roles are assigned only by authorized administrators. Staff members may voluntarily display a general online status; IP addresses and exact activity times are not published." : "Должности назначаются только уполномоченными администраторами. Сотрудник может добровольно показывать общий статус «в сети»; IP-адреса и точное время активности не публикуются."}</li>
             <li><strong>{isEnglish ? "Corrections." : "Исправления."}</strong> {isEnglish ? "A person concerned may request verification, correction or removal through the official project channel." : "Заинтересованное лицо может запросить проверку, исправление или удаление материала через официальный канал проекта."}</li>
           </ol>
           <div className="terms-warning"><Icon name="shield" size={19} /><span>{isEnglish ? "Do not rely on this project as an official source. Verify material independently and comply with applicable law." : "Не используйте проект как официальный источник. Проверяйте сведения независимо и соблюдайте применимое законодательство."}</span></div>
@@ -398,23 +461,25 @@ function TermsModal({ language, required, onAccept, onClose }) {
   );
 }
 
-function PublicFooter({ language, onOpenTerms }) {
-  return <footer className="public-footer"><div className="footer-brand"><Emblem compact /><div><strong>A.O.G.D</strong><span>Agency Of Good Deeds</span><p>Public records & Telegram digital safety initiative</p></div></div><div className="footer-links"><div><strong>Навигация</strong><button onClick={() => scrollToSection("registry")}>Публичный реестр</button><button onClick={() => scrollToSection("principles")}>Принципы работы</button><button onClick={() => scrollToSection("report")}>Передать сведения</button></div><div><strong>Официальный канал</strong><a href="https://t.me/AgencyofGoodDeeds" target="_blank" rel="noreferrer">Telegram A.O.G.D</a><span>Только проверяемые сведения</span></div></div><div className="footer-bottom"><span>© {new Date().getFullYear()} A.O.G.D</span><span>Independent satirical information project</span><button onClick={onOpenTerms}>{language === "en" ? "Terms of use" : "Условия использования"}</button><button onClick={() => scrollToSection("top")}>Наверх ↑</button></div></footer>;
+function PublicFooter({ language, onOpenTerms, onOpenSupport, onOpenReception }) {
+  return <footer className="public-footer"><div className="footer-brand"><Emblem compact /><div><strong>A.O.G.D</strong><span>Agency Of Good Deeds</span><p>Public records & Telegram digital safety initiative</p></div></div><div className="footer-links"><div><strong>Навигация</strong><button onClick={() => scrollToSection("leaderboard")}>Список лидеров</button><button onClick={() => scrollToSection("registry")}>Публичный реестр</button><button onClick={onOpenReception}>Приёмная A.O.G.D</button><button onClick={() => scrollToSection("principles")}>Принципы работы</button><button onClick={onOpenSupport}>Профиль и поддержка</button></div><div><strong>Официальный канал</strong><a href="https://t.me/AgencyofGoodDeeds" target="_blank" rel="noreferrer">Telegram A.O.G.D</a><span>Только проверяемые сведения</span></div></div><div className="footer-bottom"><span>© {new Date().getFullYear()} A.O.G.D</span><span>Independent satirical information project</span><button onClick={onOpenTerms}>{language === "en" ? "Terms of use" : "Условия использования"}</button><button onClick={() => scrollToSection("top")}>Наверх ↑</button></div></footer>;
 }
 
 function AdminLogin({ onSuccess, mode }) {
   const [token, setToken] = useState("");
+  const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileReset, setTurnstileReset] = useState(0);
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError("");
-    try { await authenticate(token); sessionStorage.setItem("aogd-admin-token", token); onSuccess(token); }
+    try { await authenticate(token, turnstileToken, otp); onSuccess(mode === "local" ? token : "server-session"); setToken(""); setOtp(""); }
     catch (err) { setError(err.message); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setTurnstileReset((value) => value + 1); }
   }
   function resetPassword() {
     resetLocalAdminPassword();
-    sessionStorage.removeItem("aogd-admin-token");
     setToken("");
     setError("");
     window.alert(localStorage.getItem("aogd-language") === "en" ? "The local password has been reset. Enter a new password of at least 8 characters." : "Локальный пароль сброшен. Теперь введите новый пароль длиной от 8 символов.");
@@ -424,11 +489,13 @@ function AdminLogin({ onSuccess, mode }) {
       <section className="login-card">
         <Emblem />
         <div className="eyebrow">Закрытый раздел</div><h1>Панель управления</h1>
-        <p>Введите секретный пароль администратора. Он не сохраняется в базе и действует только в этой вкладке.</p>
+        <p>Введите секретный пароль администратора. После проверки сервер создаст защищённый сеанс, а сам пароль не будет храниться в браузере.</p>
         <form onSubmit={submit}>
-          <label>Пароль администратора<input type="password" value={token} onChange={(event) => setToken(event.target.value)} minLength={8} autoComplete="current-password" required placeholder="Не менее 8 символов" /></label>
+          <label>Пароль администратора<input type="password" value={token} onChange={(event) => setToken(event.target.value)} minLength={mode === "local" ? 8 : 20} maxLength={256} autoComplete="current-password" required placeholder={mode === "local" ? "Не менее 8 символов" : "Не менее 20 символов"} /></label>
+          {mode !== "local" && <label>Код 2FA<input className="code-input" inputMode="numeric" pattern="[0-9]{6}" maxLength="6" value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, ""))} autoComplete="one-time-code" placeholder="Если 2FA включена" /></label>}
+          {mode !== "local" && <TurnstileWidget onToken={setTurnstileToken} resetSignal={turnstileReset} action="admin_login" />}
           {error && <div className="form-error">{error}</div>}
-          <button className="button button--primary" disabled={busy}>{busy ? "Проверка…" : "Войти"} <Icon name="arrow" size={17} /></button>
+          <button className="button button--primary" disabled={busy || (mode !== "local" && turnstileEnabled() && !turnstileToken)}>{busy ? "Проверка…" : "Войти"} <Icon name="arrow" size={17} /></button>
         </form>
         {mode === "local" && <><p className="login-hint">Демо-режим: при первом входе придумайте пароль. На опубликованном сайте пароль задаётся секретом Cloudflare.</p><button type="button" className="text-button reset-password" onClick={resetPassword}>Сбросить локальный пароль</button></>}
       </section>
@@ -520,14 +587,91 @@ function RecordForm({ initial, token, onSaved, onCancel }) {
   );
 }
 
+function AdminSupportManager({ token }) {
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [openId, setOpenId] = useState("");
+  const labels = { pending: "На рассмотрении", approved: "Одобрено", rejected: "Отклонено", resolved: "Закрыто" };
+  const categories = { technical: "Техническая", correction: "Исправление", report: "Заявка", other: "Другое" };
+  function reload() { setLoading(true); loadAdminSupportRequests(token).then(setRequests).catch((nextError) => setError(nextError.message)).finally(() => setLoading(false)); }
+  useEffect(reload, [token]);
+  async function changeStatus(item, status) {
+    setError("");
+    try {
+      await updateSupportRequestStatus(token, item.id, status);
+      setRequests((current) => current.map((request) => request.id === item.id ? { ...request, status } : request));
+    } catch (nextError) { setError(nextError.message); }
+  }
+  if (loading) return <section className="admin-card"><div className="empty-state">Загрузка обращений…</div></section>;
+  return <section className="admin-card support-admin-card">
+    <div className="admin-toolbar"><div><strong>Входящие обращения</strong><span>Одобрение учитывается в публичном рейтинге только для зарегистрированных пользователей.</span></div><button className="button button--secondary" onClick={reload}>Обновить</button></div>
+    {error && <div className="form-error admin-error">{error}</div>}
+    <div className="support-admin-list">{requests.map((item) => <article key={item.id} className={openId === item.id ? "open" : ""}>
+      <button className="support-admin-summary" onClick={() => setOpenId(openId === item.id ? "" : item.id)}>
+        <span className="support-admin-category">{categories[item.category] || item.category}</span>
+        <div><strong>{item.subject}</strong><small>{item.nickname || "Гость"} · {item.email || "без почты"}</small></div>
+        <time>{new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium" }).format(new Date(item.createdAt))}</time>
+        <mark className={`request-status request-status--${item.status}`}>{labels[item.status]}</mark>
+        <Icon name="arrow" size={17} />
+      </button>
+      {openId === item.id && <div className="support-admin-detail"><p>{item.description}</p><dl><div><dt>Telegram</dt><dd>{item.telegramUsername || "Не указан"}</dd></div><div><dt>Номер</dt><dd>{item.id}</dd></div></dl>{item.photoUrl && <a href={item.photoUrl} target="_blank" rel="noreferrer"><img src={item.photoUrl} alt="Приложение к обращению" />Открыть изображение</a>}<div className="support-admin-actions"><span>Изменить статус:</span>{Object.entries(labels).map(([value, label]) => <button key={value} className={item.status === value ? "active" : ""} onClick={() => changeStatus(item, value)}>{label}</button>)}</div></div>}
+    </article>)}{!requests.length && <div className="empty-state"><h3>Обращений пока нет</h3><p>Новые заявки появятся здесь.</p></div>}</div>
+  </section>;
+}
+
+function AdminSecurityCenter() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  function reload() {
+    setError("");
+    loadAdminSecurity().then(setData).catch((nextError) => setError(nextError.message));
+  }
+  useEffect(reload, []);
+  async function revokeOthers() {
+    if (!window.confirm("Завершить все остальные административные сеансы?")) return;
+    setBusy(true); setError("");
+    try { await revokeOtherAdminSessions(); await loadAdminSecurity().then(setData); }
+    catch (nextError) { setError(nextError.message); }
+    finally { setBusy(false); }
+  }
+  if (!data && !error) return <section className="admin-card"><div className="empty-state">Проверка состояния защиты…</div></section>;
+  const labels = {
+    activeAdminSessions: "Админ-сессии",
+    activeUserSessions: "Сессии пользователей",
+    pendingSupport: "Ожидают модерации",
+    pendingReception: "Вопросы в приёмной",
+    disabledUsers: "Отключённые аккаунты",
+    limitedClients: "Активные ограничения",
+  };
+  return <section className="admin-card security-center">
+    <div className="admin-toolbar"><div><strong>Центр безопасности</strong><span>Состояние сеансов и обезличенный журнал действий.</span></div><div className="admin-actions"><button className="button button--secondary" onClick={reload}>Обновить</button><button className="button button--secondary" disabled={busy} onClick={revokeOthers}>Завершить другие админ-сессии</button></div></div>
+    {error && <div className="form-error admin-error">{error}</div>}
+    {data && <><div className="security-summary">{Object.entries(data.summary).map(([key, value]) => <div key={key}><span>{labels[key] || key}</span><strong>{value}</strong></div>)}</div>
+      <div className="records-table-wrap"><table className="records-table"><thead><tr><th>Событие</th><th>Объект</th><th>Время</th><th>Request ID</th></tr></thead><tbody>{data.audit.map((item, index) => <tr key={`${item.createdAt}-${index}`}><td>{item.action}</td><td>{item.targetId || "—"}</td><td>{new Intl.DateTimeFormat("ru-RU", { dateStyle: "short", timeStyle: "medium" }).format(new Date(item.createdAt))}</td><td>{item.requestId || "—"}</td></tr>)}</tbody></table>{!data.audit.length && <div className="empty-state">Журнал пока пуст.</div>}</div></>}
+  </section>;
+}
+
 function AdminPanel({ records, setRecords, mode, token, setToken }) {
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
+  const [section, setSection] = useState("records");
   const visible = records.filter((record) => [record.fullName, record.fileNumber, record.aliases].join(" ").toLowerCase().includes(query.toLowerCase()));
+  const sectionCopy = {
+    records: ["Управление базой", "Добавляйте, обновляйте и архивируйте публичные записи."],
+    reception: ["Приёмная A.O.G.D", "Модерируйте вопросы, публикуйте официальные ответы и защищайте личности авторов."],
+    support: ["Центр поддержки", "Рассматривайте обращения и управляйте их статусами."],
+    team: ["Состав организации", "Назначайте должности, управляйте кастами и контролируйте публичные статусы сотрудников."],
+    security: ["Центр безопасности", "Контролируйте активные сеансы и журнал административных действий."],
+  }[section];
   if (!token) return <AdminLogin mode={mode} onSuccess={setToken} />;
-  function logout() { sessionStorage.removeItem("aogd-admin-token"); setToken(""); }
+  async function logout() {
+    try { await logoutAdmin(); }
+    finally { setToken(""); }
+  }
   function saved(record) { setRecords((current) => { const exists = current.some((item) => item.id === record.id); return exists ? current.map((item) => item.id === record.id ? record : item) : [record, ...current]; }); setEditing(null); setCreating(false); }
   async function remove(record) {
     const message = localStorage.getItem("aogd-language") === "en" ? `Delete “${record.fullName}”? This action cannot be undone.` : `Удалить запись «${record.fullName}»? Это действие нельзя отменить.`;
@@ -538,20 +682,22 @@ function AdminPanel({ records, setRecords, mode, token, setToken }) {
   }
   return (
     <main className="admin-shell">
-      <div className="admin-heading"><div><div className="eyebrow">A.O.G.D control room</div><h1>Управление базой</h1><p>Добавляйте, обновляйте и архивируйте публичные записи.</p></div><div className="admin-actions"><button className="button button--secondary" onClick={logout}><Icon name="logout" size={17} /> Выйти</button><button className="button button--primary" onClick={() => setCreating(true)}><Icon name="plus" size={17} /> Добавить запись</button></div></div>
+      <div className="admin-heading"><div><div className="eyebrow">A.O.G.D control room</div><h1>{sectionCopy[0]}</h1><p>{sectionCopy[1]}</p></div><div className="admin-actions"><button className="button button--secondary" onClick={logout}><Icon name="logout" size={17} /> Выйти</button>{section === "records" && <button className="button button--primary" onClick={() => setCreating(true)}><Icon name="plus" size={17} /> Добавить запись</button>}</div></div>
       <div className={`mode-card mode-card--${mode}`}><span className="mode-dot" /><div><strong>{mode === "cloud" ? "Постоянное хранилище подключено" : "Локальный демо-режим"}</strong><p>{mode === "cloud" ? "Данные и фотографии сохраняются в Cloudflare." : "Изменения видны только в этом браузере. Подключите Cloudflare перед рабочей публикацией."}</p></div></div>
-      <section className="admin-card">
+      <div className="admin-section-tabs"><button className={section === "records" ? "active" : ""} onClick={() => setSection("records")}>Публичные записи</button><button className={section === "reception" ? "active" : ""} onClick={() => setSection("reception")}>Приёмная</button><button className={section === "support" ? "active" : ""} onClick={() => setSection("support")}>Обращения поддержки</button><button className={section === "team" ? "active" : ""} onClick={() => setSection("team")}>Состав и должности</button><button className={section === "security" ? "active" : ""} onClick={() => setSection("security")}>Безопасность</button></div>
+      {section === "reception" ? <AdminReceptionManager /> : section === "support" ? <AdminSupportManager token={token} /> : section === "team" ? <AdminTeamManager /> : section === "security" ? <AdminSecurityCenter /> : <section className="admin-card">
         <div className="admin-toolbar"><div className="search-box search-box--small"><Icon name="search" size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Найти запись…" /></div><span>{visible.length} записей</span></div>
         {error && <div className="form-error admin-error">{error}</div>}
         <div className="records-table-wrap"><table className="records-table"><thead><tr><th>Запись</th><th>Номер</th><th>Статус</th><th>Обновлено</th><th>Действия</th></tr></thead><tbody>{visible.map((record) => <tr key={record.id}><td><div className="table-person"><Portrait record={record} /><div><strong>{record.fullName}</strong><span>{record.aliases || "Без псевдонимов"}</span></div></div></td><td>{record.fileNumber}</td><td><StatusBadge status={record.status} /></td><td>{record.updatedAt ? new Intl.DateTimeFormat(localStorage.getItem("aogd-language") === "en" ? "en-US" : "ru-RU").format(new Date(record.updatedAt)) : "—"}</td><td><div className="row-actions"><button className="icon-button" onClick={() => setEditing(record)} title="Изменить"><Icon name="edit" size={18} /></button><button className="icon-button danger" onClick={() => remove(record)} title="Удалить"><Icon name="trash" size={18} /></button></div></td></tr>)}</tbody></table>{!visible.length && <div className="empty-state"><h3>Записей пока нет</h3><p>Создайте первую публикацию.</p></div>}</div>
         {mode === "local" && <button className="text-button" onClick={() => { const message = localStorage.getItem("aogd-language") === "en" ? "Restore the demo record? Current local records will be replaced." : "Вернуть демонстрационную запись? Текущие локальные записи будут заменены."; if (window.confirm(message)) setRecords(resetLocalDemo()); }}>Восстановить демонстрационные данные</button>}
-      </section>
+      </section>}
       {(creating || editing) && <RecordForm initial={editing || emptyRecord} token={token} onSaved={saved} onCancel={() => { setEditing(null); setCreating(false); }} />}
     </main>
   );
 }
 
 const MAINTENANCE_MODE = import.meta.env.VITE_MAINTENANCE_MODE === "true";
+const TERMS_VERSION = "2026-07-24-staff-presence-v4";
 
 function MaintenancePage({ language, reduceMotion }) {
   const isEnglish = language === "en";
@@ -589,12 +735,13 @@ function MaintenancePage({ language, reduceMotion }) {
 }
 
 export default function App() {
-  const [route, setRoute] = useState(isAdminLocation() ? "admin" : "public");
+  const [route, setRoute] = useState(currentRoute);
   const [records, setRecords] = useState([]);
   const [mode, setMode] = useState("unknown");
   const [loading, setLoading] = useState(true);
-  const [termsOpen, setTermsOpen] = useState(() => localStorage.getItem("aogd-terms-version") !== "2026-07-19");
-  const [token, setToken] = useState(() => sessionStorage.getItem("aogd-admin-token") || "");
+  const [currentUser, setCurrentUser] = useState(null);
+  const [termsOpen, setTermsOpen] = useState(() => localStorage.getItem("aogd-terms-version") !== TERMS_VERSION);
+  const [token, setToken] = useState("");
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem("aogd-theme");
     return ["default", "light", "dark"].includes(saved) ? saved : "default";
@@ -612,8 +759,22 @@ export default function App() {
     }
   });
   useInterfaceLanguage(language);
-  useEffect(() => { const handler = () => setRoute(isAdminLocation() ? "admin" : "public"); window.addEventListener("hashchange", handler); return () => window.removeEventListener("hashchange", handler); }, []);
-  useEffect(() => { loadRecords().then((result) => { setRecords(result.records); setMode(result.mode); }).finally(() => setLoading(false)); }, []);
+  useEffect(() => { const handler = () => setRoute(currentRoute()); window.addEventListener("hashchange", handler); return () => window.removeEventListener("hashchange", handler); }, []);
+  useEffect(() => {
+    loadRecords()
+      .then(async (result) => {
+        setRecords(result.records);
+        setMode(result.mode);
+        if (result.mode === "cloud" && await getAdminSession()) setToken("server-session");
+      })
+      .finally(() => setLoading(false));
+  }, []);
+  useEffect(() => {
+    const expire = () => setToken("");
+    window.addEventListener("aogd-admin-session-expired", expire);
+    return () => window.removeEventListener("aogd-admin-session-expired", expire);
+  }, []);
+  useEffect(() => { getCurrentUser().then(setCurrentUser); }, []);
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("aogd-theme", theme); }, [theme]);
   useEffect(() => {
     document.documentElement.dataset.fontSize = comfort.fontSize;
@@ -642,9 +803,9 @@ export default function App() {
     setComfort((current) => ({ ...current, [key]: value }));
   }
   function acceptTerms() {
-    localStorage.setItem("aogd-terms-version", "2026-07-19");
+    localStorage.setItem("aogd-terms-version", TERMS_VERSION);
     setTermsOpen(false);
   }
-  if (MAINTENANCE_MODE && route !== "admin") return <MaintenancePage language={language} reduceMotion={comfort.reduceMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches} />;
-  return <div className="app"><Header route={route} theme={theme} onThemeChange={changeTheme} language={language} onLanguageChange={changeLanguage} comfort={comfort} onComfortChange={changeComfort} />{route === "admin" ? <><AdminPanel records={records} setRecords={setRecords} mode={mode} token={token} setToken={setToken} /><footer className="admin-footer"><span>© {new Date().getFullYear()} A.O.G.D</span><span>Restricted administration workspace</span></footer></> : <><PublicDatabase records={records} loading={loading} mode={mode} /><PublicFooter language={language} onOpenTerms={() => setTermsOpen(true)} />{termsOpen && <TermsModal language={language} required={localStorage.getItem("aogd-terms-version") !== "2026-07-19"} onAccept={acceptTerms} onClose={() => setTermsOpen(false)} />}</>}</div>;
+  if (MAINTENANCE_MODE && route === "public") return <MaintenancePage language={language} reduceMotion={comfort.reduceMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches} />;
+  return <div className="app"><Header route={route} user={currentUser} theme={theme} onThemeChange={changeTheme} language={language} onLanguageChange={changeLanguage} comfort={comfort} onComfortChange={changeComfort} />{route !== "admin" && <StaffPresence user={currentUser} />}{route === "admin" ? <><AdminPanel records={records} setRecords={setRecords} mode={mode} token={token} setToken={setToken} /><footer className="admin-footer"><span>© {new Date().getFullYear()} A.O.G.D</span><span>Restricted administration workspace</span></footer></> : route === "profile" ? <><AccountCenter user={currentUser} onUserChange={setCurrentUser} onBack={() => go("public")} /><footer className="admin-footer"><span>© {new Date().getFullYear()} A.O.G.D</span><span>Member support workspace</span></footer></> : route === "reception" ? <><PublicReception user={currentUser} onBack={() => go("public")} onOpenProfile={() => go("profile")} /><PublicFooter language={language} onOpenTerms={() => setTermsOpen(true)} onOpenSupport={() => go("profile")} onOpenReception={() => go("reception")} />{termsOpen && <TermsModal language={language} required={localStorage.getItem("aogd-terms-version") !== TERMS_VERSION} onAccept={acceptTerms} onClose={() => setTermsOpen(false)} />}</> : <><PublicDatabase records={records} loading={loading} mode={mode} onOpenSupport={() => go("profile")} /><PublicFooter language={language} onOpenTerms={() => setTermsOpen(true)} onOpenSupport={() => go("profile")} onOpenReception={() => go("reception")} />{termsOpen && <TermsModal language={language} required={localStorage.getItem("aogd-terms-version") !== TERMS_VERSION} onAccept={acceptTerms} onClose={() => setTermsOpen(false)} />}</>}</div>;
 }

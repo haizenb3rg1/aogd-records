@@ -1,1 +1,8 @@
 ADMIN_TOKEN=replace-with-a-long-random-secret
+ADMIN_TOTP_SECRET=optional-base32-secret-from-your-authenticator
+RATE_LIMIT_SECRET=replace-with-an-independent-32-byte-random-secret
+CODE_PEPPER=replace-with-another-independent-32-byte-random-secret
+TURNSTILE_SECRET_KEY=replace-with-cloudflare-turnstile-secret
+RESEND_API_KEY=re_replace-with-your-resend-key
+EMAIL_FROM="A.O.G.D <support@updates.aogd.site>"
+SUPPORT_EMAIL=your-support-inbox@example.com
