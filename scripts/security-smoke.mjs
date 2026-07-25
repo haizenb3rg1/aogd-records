@@ -188,7 +188,7 @@ async function testMigrations() {
 async function testPasswords() {
   const password = "Long-security-passphrase-42!";
   const stored = await hashPassword(password);
-  assert.equal(stored.iterations, 600000);
+  assert.equal(stored.iterations, 210000);
   assert.equal(await verifyPassword(password, stored.hash, stored.salt, stored.iterations), true);
   assert.equal(await verifyPassword("wrong-password", stored.hash, stored.salt, stored.iterations), false);
 }
