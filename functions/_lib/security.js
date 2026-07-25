@@ -325,8 +325,151 @@ export async function isAdmin(request, env) {
   return Boolean(row);
 }
 
+export const STAFF_PERMISSIONS = Object.freeze([
+  "users.view",
+  "users.disable",
+  "users.enable",
+  "users.assign_roles",
+  "users.view_email",
+  "records.view",
+  "records.create",
+  "records.edit",
+  "records.publish",
+  "records.archive",
+  "records.delete",
+  "support.view",
+  "support.reply",
+  "support.change_status",
+  "support.view_private",
+  "support.delete",
+  "reception.view",
+  "reception.answer",
+  "reception.moderate",
+  "reception.publish",
+  "reception.view_author",
+  "roles.view",
+  "roles.create",
+  "roles.edit",
+  "roles.delete",
+  "roles.assign",
+  "roles.manage_permissions",
+  "security.view_audit",
+  "security.view_sessions",
+  "security.revoke_sessions",
+  "security.manage_settings",
+  "site.manage_maintenance",
+  "site.manage_content",
+]);
+
+export const DANGEROUS_PERMISSIONS = Object.freeze([
+  "users.disable",
+  "users.enable",
+  "users.assign_roles",
+  "users.view_email",
+  "records.publish",
+  "records.archive",
+  "records.delete",
+  "support.view_private",
+  "support.delete",
+  "reception.publish",
+  "reception.view_author",
+  "roles.create",
+  "roles.edit",
+  "roles.delete",
+  "roles.assign",
+  "roles.manage_permissions",
+  "security.view_audit",
+  "security.view_sessions",
+  "security.revoke_sessions",
+  "security.manage_settings",
+  "site.manage_maintenance",
+  "site.manage_content",
+]);
+
+export async function getUserPermissions(db, userId) {
+  const result = await db.prepare(`
+    SELECT DISTINCT rp.permission_key
+    FROM staff_assignments sa
+    JOIN staff_roles sr ON sr.slug = sa.role_slug
+    JOIN role_permissions rp ON rp.role_slug = sr.slug
+    JOIN permissions p ON p.key = rp.permission_key
+    WHERE sa.user_id = ?
+    ORDER BY rp.permission_key ASC
+  `).bind(userId).all();
+  return (result.results || [])
+    .map((row) => row.permission_key)
+    .filter((permission) => STAFF_PERMISSIONS.includes(permission));
+}
+
+export async function getAdminAccess(request, env) {
+  if (!env.DB) return null;
+  if (await isAdmin(request, env)) {
+    return {
+      authenticated: true,
+      kind: "owner-session",
+      userId: null,
+      nickname: "Owner",
+      roles: ["owner"],
+      permissions: ["*"],
+    };
+  }
+  const user = await getCurrentUser(request, env);
+  if (!user?.verified_at) return null;
+  const assignments = await env.DB.prepare(`
+    SELECT sr.slug, sr.name, sr.priority
+    FROM staff_assignments sa
+    JOIN staff_roles sr ON sr.slug = sa.role_slug
+    WHERE sa.user_id = ?
+    ORDER BY sr.priority ASC, sr.name ASC
+  `).bind(user.id).all();
+  const rows = assignments.results || [];
+  if (!rows.length) return null;
+  const roles = [...new Set(rows.map((row) => row.slug))];
+  const permissions = roles.includes("owner")
+    ? ["*"]
+    : await getUserPermissions(env.DB, user.id);
+  if (!permissions.length) return null;
+  return {
+    authenticated: true,
+    kind: "staff-session",
+    userId: user.id,
+    nickname: user.nickname,
+    roles,
+    permissions,
+  };
+}
+
+export function hasPermission(access, permission) {
+  return Boolean(access?.permissions?.includes("*") || access?.permissions?.includes(permission));
+}
+
+export const accessHasPermission = hasPermission;
+
+export async function requirePermission(request, env, permission) {
+  if (!STAFF_PERMISSIONS.includes(permission)) {
+    throw new ApiError("Неизвестное разрешение.", 500, "unknown_permission");
+  }
+  const access = await getAdminAccess(request, env);
+  if (!access) throw new ApiError("Требуется вход сотрудника.", 401, "admin_auth_required");
+  if (!hasPermission(access, permission)) {
+    throw new ApiError("У вашей должности нет права на это действие.", 403, "permission_denied");
+  }
+  return access;
+}
+
+export async function requireOwner(request, env) {
+  const access = await getAdminAccess(request, env);
+  if (!access) throw new ApiError("Требуется вход сотрудника.", 401, "admin_auth_required");
+  if (!access.permissions.includes("*") || !access.roles.includes("owner")) {
+    throw new ApiError("Это действие доступно только Owner.", 403, "owner_required");
+  }
+  return access;
+}
+
 export async function requireAdmin(request, env) {
-  if (!(await isAdmin(request, env))) throw new ApiError("Требуется вход администратора.", 401, "admin_auth_required");
+  const access = await getAdminAccess(request, env);
+  if (!access) throw new ApiError("Требуется вход сотрудника.", 401, "admin_auth_required");
+  return access;
 }
 
 function hasConfiguredValue(value) {

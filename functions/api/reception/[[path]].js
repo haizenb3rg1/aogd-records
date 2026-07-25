@@ -10,7 +10,7 @@ import {
   getCurrentUser,
   json,
   readJson,
-  requireAdmin,
+  requirePermission,
   requireDatabase,
   safeError,
   sendEmail,
@@ -149,7 +149,7 @@ async function listMine(request, env) {
 
 async function listAdmin(request, env) {
   const db = requireDatabase(env);
-  await requireAdmin(request, env);
+  await requirePermission(request, env, "reception.view");
   await enforceRateLimit(env, request, "admin-reception-read", 180, 60 * 60);
   const result = await db.prepare(`
     ${BASE_SELECT}
@@ -265,7 +265,7 @@ async function toggleInterest(request, env, id) {
 
 async function revealAuthor(request, env, id) {
   const db = requireDatabase(env);
-  await requireAdmin(request, env);
+  await requirePermission(request, env, "reception.view_author");
   await enforceRateLimit(env, request, "admin-reception-reveal", 30, 60 * 60);
   const body = await readJson(request, 4 * 1024);
   const reason = cleanText(body.reason, 300, 10);
@@ -311,7 +311,6 @@ export async function onRequestPut({ request, env, params }) {
   try {
     assertSameOrigin(request);
     const db = requireDatabase(env);
-    await requireAdmin(request, env);
     await enforceRateLimit(env, request, "admin-reception-update", 120, 60 * 60);
     const parts = route(params).split("/").filter(Boolean);
     if (parts.length !== 2 || parts[0] !== "admin") {
@@ -334,6 +333,19 @@ export async function onRequestPut({ request, env, params }) {
       WHERE r.id = ?
     `).bind(id).first();
     if (!current) throw new ApiError("Обращение не найдено.", 404, "not_found");
+    if ((current.official_answer || "") !== officialAnswer) {
+      await requirePermission(request, env, "reception.answer");
+    }
+    if (status !== current.status) {
+      await requirePermission(
+        request,
+        env,
+        publicStatus(status) ? "reception.publish" : "reception.moderate",
+      );
+    }
+    if ((current.moderator_note || "") !== moderatorNote) {
+      await requirePermission(request, env, "reception.moderate");
+    }
     if (current.visibility === "private" && status === "published") {
       throw new ApiError("Приватное обращение нельзя опубликовать.", 409, "private_thread");
     }

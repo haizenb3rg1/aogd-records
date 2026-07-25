@@ -336,7 +336,7 @@ export function MyReception({ refreshKey }) {
   </section>;
 }
 
-function AdminReceptionItem({ thread, onChanged }) {
+function AdminReceptionItem({ thread, onChanged, canModerate, canRevealAuthor }) {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState(thread.status);
   const [answer, setAnswer] = useState(thread.officialAnswer);
@@ -347,6 +347,7 @@ function AdminReceptionItem({ thread, onChanged }) {
 
   async function save(event) {
     event.preventDefault();
+    if (!canModerate) return;
     setBusy(true);
     setError("");
     try {
@@ -397,12 +398,12 @@ function AdminReceptionItem({ thread, onChanged }) {
         <span>{thread.anonymous ? "Автор скрыт от публики" : `Автор: ${thread.author}`}</span>
         <span>Интересует пользователей: {thread.interestCount}</span>
       </div>
-      {thread.authorRevealRequired && <div className="author-reveal">
+      {thread.authorRevealRequired && canRevealAuthor && <div className="author-reveal">
         {!author ? <button type="button" disabled={busy} onClick={reveal}>Установить автора по служебной причине</button> : <div><strong>{author.nickname}</strong><span>{author.email}</span><small>ID: {author.userId}</small></div>}
         <p>Просмотр личности анонимного автора фиксируется в журнале безопасности.</p>
       </div>}
       <div className="admin-reception-form">
-        <label>Статус<select value={status} onChange={(event) => setStatus(event.target.value)}>
+        <label>Статус<select disabled={!canModerate} value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="pending">На модерации</option>
           <option value="needs_info">Нужны сведения</option>
           {thread.visibility === "public" && <option value="published">Опубликовано</option>}
@@ -411,16 +412,16 @@ function AdminReceptionItem({ thread, onChanged }) {
           <option value="resolved">Решено</option>
           <option value="archived">Архив</option>
         </select></label>
-        <label>Официальный ответ<textarea rows="6" value={answer} onChange={(event) => setAnswer(event.target.value)} maxLength="5000" placeholder="Ответ будет виден автору и, для публичного вопроса, всем посетителям." /></label>
-        <label>Внутренняя заметка<textarea rows="3" value={note} onChange={(event) => setNote(event.target.value)} maxLength="1200" placeholder="Автор увидит заметку в своём кабинете; публично она не выводится." /></label>
+        <label>Официальный ответ<textarea disabled={!canModerate} rows="6" value={answer} onChange={(event) => setAnswer(event.target.value)} maxLength="5000" placeholder="Ответ будет виден автору и, для публичного вопроса, всем посетителям." /></label>
+        <label>Внутренняя заметка<textarea disabled={!canModerate} rows="3" value={note} onChange={(event) => setNote(event.target.value)} maxLength="1200" placeholder="Автор увидит заметку в своём кабинете; публично она не выводится." /></label>
       </div>
       {error && <div className="form-error">{error}</div>}
-      <button className="button button--primary" disabled={busy}>{busy ? "Сохранение…" : "Сохранить решение"}</button>
+      {canModerate && <button className="button button--primary" disabled={busy}>{busy ? "Сохранение…" : "Сохранить решение"}</button>}
     </form>}
   </article>;
 }
 
-export function AdminReceptionManager() {
+export function AdminReceptionManager({ canModerate = false, canRevealAuthor = false }) {
   const [threads, setThreads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -445,7 +446,7 @@ export function AdminReceptionManager() {
     <div className="admin-toolbar"><div><strong>Приёмная A.O.G.D</strong><span>Публичные вопросы проходят премодерацию. Приватные обращения нельзя сделать публичными.</span></div><button className="button button--secondary" onClick={reload}>Обновить</button></div>
     <Message error={error} />
     <div className="admin-reception-list">
-      {threads.map((thread) => <AdminReceptionItem key={thread.id} thread={thread} onChanged={changed} />)}
+      {threads.map((thread) => <AdminReceptionItem key={thread.id} thread={thread} onChanged={changed} canModerate={canModerate} canRevealAuthor={canRevealAuthor} />)}
       {!threads.length && <div className="empty-state"><h3>Обращений пока нет</h3><p>Новые вопросы появятся здесь.</p></div>}
     </div>
   </section>;
