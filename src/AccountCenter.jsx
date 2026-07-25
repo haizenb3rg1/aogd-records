@@ -23,6 +23,12 @@ function FormMessage({ error, success }) {
   return null;
 }
 
+function accountErrorMessage(error) {
+  if (error?.code !== "internal_error") return error?.message || "Не удалось выполнить запрос.";
+  const reference = error?.requestId ? ` Код обращения: ${error.requestId}.` : "";
+  return `Сервис аккаунтов временно недоступен. Повторите попытку позже.${reference}`;
+}
+
 function AuthPanel({ onUserChange }) {
   const [view, setView] = useState("login");
   const [email, setEmail] = useState("");
@@ -59,7 +65,7 @@ function AuthPanel({ onUserChange }) {
         onUserChange(result.user);
       }
     } catch (nextError) {
-      setError(nextError.message);
+      setError(accountErrorMessage(nextError));
     } finally {
       setBusy(false);
       if (["register", "login", "forgot"].includes(view)) setTurnstileReset((value) => value + 1);

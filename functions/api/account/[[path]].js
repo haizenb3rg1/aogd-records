@@ -28,7 +28,9 @@ import {
   verifyTurnstile,
 } from "../../_lib/security.js";
 
-const CURRENT_PASSWORD_ITERATIONS = 600000;
+// 210k keeps PBKDF2 deliberately expensive while fitting the CPU budget of
+// Cloudflare Pages' free runtime. Existing stronger hashes remain supported.
+const CURRENT_PASSWORD_ITERATIONS = 210000;
 const USER_COOKIE = "__Host-aogd_session";
 const DUMMY_PASSWORD_HASH = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 const DUMMY_PASSWORD_SALT = "AAAAAAAAAAAAAAAAAAAAAA==";

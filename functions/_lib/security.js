@@ -222,7 +222,7 @@ export function randomCode() {
   return String(value % 1000000).padStart(6, "0");
 }
 
-export async function hashPassword(password, salt = bytesToBase64(crypto.getRandomValues(new Uint8Array(16))), iterations = 600000) {
+export async function hashPassword(password, salt = bytesToBase64(crypto.getRandomValues(new Uint8Array(16))), iterations = 210000) {
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
     { name: "PBKDF2", hash: "SHA-256", salt: base64ToBytes(salt), iterations },
@@ -682,15 +682,21 @@ export async function sendEmail(env, { to, subject, text }) {
     .trim()
     .slice(0, 200);
   if (!safeSubject) throw new ApiError("Некорректная тема письма.", 400, "invalid_email_subject");
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-      "User-Agent": "AOGD/2.0",
-    },
-    body: JSON.stringify({ from: env.EMAIL_FROM, to: [to], subject: safeSubject, text }),
-  });
+  let response;
+  try {
+    response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+        "User-Agent": "AOGD/2.0",
+      },
+      body: JSON.stringify({ from: env.EMAIL_FROM, to: [to], subject: safeSubject, text }),
+    });
+  } catch (error) {
+    console.error("Email provider request failed", { name: error?.name });
+    throw new ApiError("Почтовый сервис временно недоступен. Попробуйте позже.", 503, "email_delivery_failed");
+  }
   if (!response.ok) {
     console.error("Email provider rejected request", { status: response.status });
     throw new ApiError("Не удалось отправить письмо. Попробуйте позже.", 503, "email_delivery_failed");
