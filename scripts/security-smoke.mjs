@@ -5,8 +5,12 @@ import {
   assertAllowedSearchParams,
   assertSameOrigin,
   configurationStatus,
+  getUserPermissions,
+  hasPermission,
   hashPassword,
+  requirePermission,
   safeError,
+  sha256,
   validateImageFile,
   verifyPassword,
 } from "../functions/_lib/security.js";
@@ -26,6 +30,9 @@ function asD1(database) {
         },
         first() {
           return statement.get(...bindings) || null;
+        },
+        all() {
+          return { results: statement.all(...bindings) };
         },
         run() {
           const result = statement.run(...bindings);
@@ -57,6 +64,7 @@ async function testMigrations() {
     "0004_reception.sql",
     "0005_staff_roles_presence.sql",
     "0006_privacy_and_owner_invariants.sql",
+    "0007_role_permissions.sql",
   ]) {
     database.exec(await readFile(new URL(`migrations/${name}`, root), "utf8"));
   }
@@ -80,6 +88,8 @@ async function testMigrations() {
     "staff_roles",
     "staff_assignments",
     "staff_presence",
+    "permissions",
+    "role_permissions",
   ]) {
     assert.ok(tables.includes(table), `Missing table: ${table}`);
   }
@@ -87,6 +97,13 @@ async function testMigrations() {
   const userColumns = database.prepare("PRAGMA table_info(users)").all().map(({ name }) => name);
   assert.ok(userColumns.includes("password_iterations"));
   assert.ok(userColumns.includes("disabled_at"));
+  const roleColumns = database.prepare("PRAGMA table_info(staff_roles)").all().map(({ name }) => name);
+  assert.ok(roleColumns.includes("description"));
+  assert.ok(roleColumns.includes("is_editable"));
+  assert.ok(roleColumns.includes("updated_at"));
+  assert.equal(database.prepare("SELECT is_editable FROM staff_roles WHERE slug = 'owner'").get().is_editable, 0);
+  assert.equal(database.prepare("SELECT COUNT(*) AS total FROM permissions").get().total, 33);
+  assert.equal(database.prepare("SELECT COUNT(*) AS total FROM permissions WHERE is_dangerous = 1").get().total > 0, true);
 
   const now = new Date().toISOString();
   const insertUser = database.prepare(`
@@ -110,6 +127,33 @@ async function testMigrations() {
     VALUES ('user-a', 'support', ?, 'test')
   `).run(now);
   assert.equal(database.prepare("SELECT role_slug FROM staff_assignments WHERE user_id = 'user-a'").get().role_slug, "support");
+  database.prepare(`
+    INSERT INTO staff_assignments (user_id, role_slug, assigned_at, assigned_by)
+    VALUES ('user-a', 'press', ?, 'test')
+  `).run(now);
+  const permissionDb = asD1(database);
+  const unionPermissions = await getUserPermissions(permissionDb, "user-a");
+  assert.ok(unionPermissions.includes("support.reply"));
+  assert.ok(unionPermissions.includes("records.publish"));
+  assert.equal(hasPermission({ permissions: unionPermissions }, "records.delete"), false);
+  assert.equal(hasPermission({ permissions: ["*"] }, "records.delete"), true);
+  const sessionToken = "test-user-session-token";
+  database.prepare(`
+    INSERT INTO user_sessions (id, user_id, token_hash, expires_at, created_at)
+    VALUES ('session-a', 'user-a', ?, ?, ?)
+  `).run(
+    await sha256(sessionToken),
+    new Date(Date.now() + 60_000).toISOString(),
+    now,
+  );
+  const staffRequest = new Request("https://aogd.site/api/staff/admin", {
+    headers: { Cookie: `__Host-aogd_session=${sessionToken}` },
+  });
+  await assert.doesNotReject(() => requirePermission(staffRequest, { DB: permissionDb }, "support.reply"));
+  await assert.rejects(
+    () => requirePermission(staffRequest, { DB: permissionDb }, "records.delete"),
+    (error) => error?.status === 403 && error?.code === "permission_denied",
+  );
   database.prepare(`
     INSERT INTO staff_assignments (user_id, role_slug, assigned_at, assigned_by)
     VALUES ('user-a', 'owner', ?, 'test')

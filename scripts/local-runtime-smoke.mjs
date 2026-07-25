@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -13,6 +14,8 @@ const runtimeEnv = {
   AOGD_LOCAL_PERSIST_TO: persistDir,
   AOGD_LOCAL_TEST_BINDINGS: "1",
 };
+const staffSessionToken = "runtime-director-session-token";
+const staffSessionHash = createHash("sha256").update(staffSessionToken).digest("base64");
 const migration = spawnSync(process.execPath, ["scripts/cloudflare-local.mjs", "migrate"], {
   cwd: root,
   env: runtimeEnv,
@@ -31,7 +34,10 @@ const seed = spawnSync(process.execPath, [
   "--config", wranglerConfig,
   "--persist-to", persistDir,
   "--command",
-  "INSERT INTO users (id,email,nickname,password_hash,password_salt,password_iterations,verified_at,created_at,updated_at) VALUES ('runtime-verified-user','verified-runtime@example.invalid','RuntimeVerified','AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=','AAAAAAAAAAAAAAAAAAAAAA==',600000,'2026-07-24T00:00:00.000Z','2026-07-24T00:00:00.000Z','2026-07-24T00:00:00.000Z');",
+  `INSERT INTO users (id,email,nickname,password_hash,password_salt,password_iterations,verified_at,created_at,updated_at) VALUES ('runtime-verified-user','verified-runtime@example.invalid','RuntimeVerified','AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=','AAAAAAAAAAAAAAAAAAAAAA==',600000,'2026-07-24T00:00:00.000Z','2026-07-24T00:00:00.000Z','2026-07-24T00:00:00.000Z');
+   INSERT INTO staff_assignments (user_id,role_slug,assigned_at,assigned_by) VALUES ('runtime-verified-user','director','2026-07-24T00:00:00.000Z','runtime-seed');
+   INSERT INTO role_permissions (role_slug,permission_key,granted_at,granted_by) VALUES ('director','roles.create','2026-07-24T00:00:00.000Z','runtime-seed'),('director','roles.manage_permissions','2026-07-24T00:00:00.000Z','runtime-seed');
+   INSERT INTO user_sessions (id,user_id,token_hash,expires_at,created_at) VALUES ('runtime-staff-session','runtime-verified-user','${staffSessionHash}','2099-01-01T00:00:00.000Z','2026-07-24T00:00:00.000Z');`,
 ], {
   cwd: root,
   env: runtimeEnv,
@@ -126,6 +132,29 @@ try {
     method: "POST",
     body: supportForm,
   });
+  const staffHeaders = { Cookie: `__Host-aogd_session=${staffSessionToken}` };
+  const forbiddenSecurity = await fetch("http://127.0.0.1:8788/api/admin/security", {
+    headers: staffHeaders,
+  });
+  const selfRoleChange = await fetch(
+    "http://127.0.0.1:8788/api/staff/admin/users/runtime-verified-user/roles",
+    {
+      method: "PUT",
+      headers: { ...staffHeaders, "Content-Type": "application/json", Origin: "http://127.0.0.1:8788" },
+      body: JSON.stringify({ roles: ["director"] }),
+    },
+  );
+  const dangerousRoleCreate = await fetch("http://127.0.0.1:8788/api/staff/admin/roles", {
+    method: "POST",
+    headers: { ...staffHeaders, "Content-Type": "application/json", Origin: "http://127.0.0.1:8788" },
+    body: JSON.stringify({
+      name: "Runtime dangerous role",
+      description: "Must be rejected for non-owner",
+      color: "#4466aa",
+      priority: 80,
+      permissions: ["records.delete"],
+    }),
+  });
 
   assert.equal(records.status, 200);
   assert.equal(leaderboard.status, 200);
@@ -141,6 +170,9 @@ try {
   assert.equal(encodedJson.status, 415);
   assert.equal(verifiedUserBypass.status, 400);
   assert.equal(guestSupport.status, 201);
+  assert.equal(forbiddenSecurity.status, 403);
+  assert.equal(selfRoleChange.status, 403);
+  assert.equal(dangerousRoleCreate.status, 403);
   assert.match(records.headers.get("content-type") || "", /^application\/json\b/);
   assert.equal(records.headers.get("cache-control"), "public, max-age=30, must-revalidate");
   assert.equal(records.headers.get("x-content-type-options"), "nosniff");
@@ -158,6 +190,9 @@ try {
   assert.equal((await encodedJson.json()).code, "unsupported_content_encoding");
   assert.equal((await verifiedUserBypass.json()).code, "invalid_code");
   assert.match((await guestSupport.json()).request.id, /^[0-9a-f-]{36}$/i);
+  assert.equal((await forbiddenSecurity.json()).code, "permission_denied");
+  assert.equal((await selfRoleChange.json()).code, "self_role_assignment_forbidden");
+  assert.equal((await dangerousRoleCreate.json()).code, "dangerous_permission_owner_required");
 
   console.log("Local Pages runtime smoke tests passed.");
 } finally {

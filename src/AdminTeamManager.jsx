@@ -5,59 +5,13 @@ import {
   loadAdminPeople,
   updateStaffRole,
   updatePersonRoles,
+  updatePersonStatus,
 } from "./api.js";
 import { RoleBadges } from "./StaffPresence.jsx";
 
 function formattedId(value) {
   return `ID ${String(Number(value) || 0).padStart(6, "0")}`;
 }
-
-const PERMISSION_GROUPS = [
-  {
-    title: "Публичные записи",
-    description: "Создание и изменение карточек публичного реестра.",
-    items: [
-      ["records.create", "Создавать записи"],
-      ["records.update", "Редактировать записи"],
-      ["records.delete", "Удалять записи"],
-    ],
-  },
-  {
-    title: "Техническая поддержка",
-    description: "Доступ к обращениям, контактам заявителей и ответам.",
-    items: [
-      ["support.read", "Просматривать обращения"],
-      ["support.update", "Отвечать и менять статус"],
-    ],
-  },
-  {
-    title: "Приёмная",
-    description: "Модерация вопросов и защита личности анонимных авторов.",
-    items: [
-      ["reception.read", "Просматривать очередь"],
-      ["reception.moderate", "Публиковать и отвечать"],
-      ["reception.reveal_author", "Раскрывать автора по причине"],
-    ],
-  },
-  {
-    title: "Команда и должности",
-    description: "Управление сотрудниками. Выдавайте эти права только доверенным лицам.",
-    items: [
-      ["staff.read", "Просматривать аккаунты и должности"],
-      ["staff.assign_roles", "Назначать должности"],
-      ["staff.manage_roles", "Создавать и удалять должности"],
-      ["staff.manage_permissions", "Изменять права должностей"],
-    ],
-  },
-  {
-    title: "Безопасность",
-    description: "Журнал действий, состояние защиты и административные сеансы.",
-    items: [
-      ["security.read", "Просматривать центр безопасности"],
-      ["security.sessions.revoke", "Завершать другие админ-сеансы"],
-    ],
-  },
-];
 
 function can(access, permission) {
   return Boolean(access?.permissions?.includes("*") || access?.permissions?.includes(permission));
@@ -74,6 +28,28 @@ export default function AdminTeamManager() {
   const [roleColor, setRoleColor] = useState("#67a2ff");
   const [access, setAccess] = useState(null);
   const [editingRole, setEditingRole] = useState(null);
+  const [permissionCatalog, setPermissionCatalog] = useState([]);
+  const [permissionSearch, setPermissionSearch] = useState("");
+  const language = localStorage.getItem("aogd-language") === "en" ? "en" : "ru";
+  const categoryNames = {
+    users: language === "en" ? "Users" : "Пользователи",
+    records: language === "en" ? "Records" : "Публичные записи",
+    support: language === "en" ? "Support" : "Техническая поддержка",
+    reception: language === "en" ? "Reception" : "Приёмная",
+    roles: language === "en" ? "Roles" : "Роли и должности",
+    security: language === "en" ? "Security" : "Безопасность",
+    site: language === "en" ? "Site" : "Сайт",
+  };
+  const visiblePermissions = permissionCatalog.filter((permission) => {
+    const haystack = `${permission.key} ${permission.nameRu} ${permission.nameEn} ${permission.description}`.toLowerCase();
+    return haystack.includes(permissionSearch.trim().toLowerCase());
+  });
+  const permissionGroups = Object.entries(
+    visiblePermissions.reduce((groups, permission) => {
+      (groups[permission.category] ||= []).push(permission);
+      return groups;
+    }, {}),
+  );
 
   async function reload(search = query) {
     setLoading(true); setError("");
@@ -82,6 +58,7 @@ export default function AdminTeamManager() {
       setPeople(result.people || []);
       setRoles(result.roles || []);
       setAccess(result.access || null);
+      setPermissionCatalog(result.permissionCatalog || []);
     } catch (nextError) {
       setError(nextError.message);
     } finally {
@@ -117,11 +94,29 @@ export default function AdminTeamManager() {
     }
   }
 
+  async function changePersonStatus(person) {
+    const nextDisabled = !person.disabled;
+    if (!window.confirm(
+      nextDisabled
+        ? `Отключить аккаунт «${person.nickname}» и завершить его сеансы?`
+        : `Вернуть доступ аккаунту «${person.nickname}»?`,
+    )) return;
+    setBusyId(`status:${person.id}`); setError("");
+    try {
+      await updatePersonStatus(person.id, nextDisabled);
+      await reload();
+    } catch (nextError) {
+      setError(nextError.message);
+    } finally {
+      setBusyId("");
+    }
+  }
+
   async function addRole(event) {
     event.preventDefault();
     setBusyId("new-role"); setError("");
     try {
-      await createStaffRole({ name: roleName, color: roleColor, priority: 80, permissions: [] });
+      await createStaffRole({ name: roleName, description: "", color: roleColor, priority: 80, permissions: [] });
       setRoleName("");
       await reload();
     } catch (nextError) {
@@ -135,6 +130,7 @@ export default function AdminTeamManager() {
     setEditingRole({
       slug: role.slug,
       name: role.name,
+      description: role.description || "",
       color: role.color,
       priority: role.priority,
       permissions: role.slug === "owner" ? ["*"] : [...(role.permissions || [])],
@@ -160,8 +156,15 @@ export default function AdminTeamManager() {
     if (!editingRole || editingRole.slug === "owner") return;
     setBusyId(`edit:${editingRole.slug}`); setError("");
     try {
+      const dangerous = permissionCatalog.filter(
+        (permission) => permission.dangerous && editingRole.permissions.includes(permission.key),
+      );
+      if (dangerous.length && !window.confirm(
+        `У роли будет ${dangerous.length} опасных разрешений. Подтвердите выдачу повышенных полномочий.`,
+      )) return;
       await updateStaffRole(editingRole.slug, {
         name: editingRole.name,
+        description: editingRole.description,
         color: editingRole.color,
         priority: editingRole.priority,
         permissions: editingRole.permissions,
@@ -198,12 +201,12 @@ export default function AdminTeamManager() {
           <span className="team-role-color" style={{ "--role-color": role.color }} />
           <div><strong>{role.name}</strong><small>{role.system ? "Системная должность" : "Пользовательская должность"}</small></div>
           <div className="team-role-definition__actions">
-            {(role.slug === "owner" || can(access, "staff.manage_permissions")) && <button type="button" onClick={() => beginRoleEdit(role)}>{role.slug === "owner" ? "Права" : "Настроить"}</button>}
-            {!role.system && can(access, "staff.manage_roles") && <button type="button" disabled={busyId === `role:${role.slug}`} onClick={() => removeRole(role)}>Удалить</button>}
+            {(role.slug === "owner" || can(access, "roles.edit") || can(access, "roles.manage_permissions")) && <button type="button" onClick={() => beginRoleEdit(role)}>{role.slug === "owner" ? "Права" : "Настроить"}</button>}
+            {!role.system && can(access, "roles.delete") && <button type="button" disabled={busyId === `role:${role.slug}`} onClick={() => removeRole(role)}>Удалить</button>}
           </div>
         </div>)}
       </div>
-      {can(access, "staff.manage_roles") && <form className="team-role-create" onSubmit={addRole}>
+      {can(access, "roles.create") && <form className="team-role-create" onSubmit={addRole}>
         <label>Название новой должности<input value={roleName} onChange={(event) => setRoleName(event.target.value)} minLength="2" maxLength="28" placeholder="Например: Аналитик" required /></label>
         <label>Цвет<input type="color" value={roleColor} onChange={(event) => setRoleColor(event.target.value)} /></label>
         <button className="button button--secondary" disabled={busyId === "new-role"}>{busyId === "new-role" ? "Создание…" : "Создать должность"}</button>
@@ -215,16 +218,21 @@ export default function AdminTeamManager() {
         </div>
         {editingRole.slug !== "owner" && <div className="role-permission-meta">
           <label>Название<input value={editingRole.name} onChange={(event) => setEditingRole((current) => ({ ...current, name: event.target.value }))} minLength="2" maxLength="28" required /></label>
+          <label>Описание<input value={editingRole.description} onChange={(event) => setEditingRole((current) => ({ ...current, description: event.target.value }))} maxLength="240" /></label>
           <label>Цвет<input type="color" value={editingRole.color} onChange={(event) => setEditingRole((current) => ({ ...current, color: event.target.value }))} /></label>
           <label>Приоритет<input type="number" min="15" max="150" value={editingRole.priority} onChange={(event) => setEditingRole((current) => ({ ...current, priority: Number(event.target.value) }))} /></label>
         </div>}
+        <label className="permission-search">Поиск разрешения<input value={permissionSearch} onChange={(event) => setPermissionSearch(event.target.value)} placeholder="Название или ключ…" /></label>
         <div className="permission-groups">
-          {PERMISSION_GROUPS.map((group) => <fieldset key={group.title} disabled={editingRole.slug === "owner"}>
-            <legend>{group.title}</legend>
-            <p>{group.description}</p>
-            {group.items.map(([permission, label]) => <label key={permission}>
-              <input type="checkbox" checked={editingRole.slug === "owner" || editingRole.permissions.includes(permission)} onChange={() => togglePermission(permission)} />
-              <span><strong>{label}</strong><small>{permission}</small></span>
+          {permissionGroups.map(([category, permissions]) => <fieldset key={category} disabled={editingRole.slug === "owner" || !can(access, "roles.manage_permissions")}>
+            <legend>{categoryNames[category] || category}</legend>
+            <div className="permission-group-actions">
+              <button type="button" onClick={() => setEditingRole((current) => ({ ...current, permissions: [...new Set([...current.permissions, ...permissions.map((item) => item.key)])] }))}>Выбрать раздел</button>
+              <button type="button" onClick={() => setEditingRole((current) => ({ ...current, permissions: current.permissions.filter((key) => !permissions.some((item) => item.key === key)) }))}>Очистить</button>
+            </div>
+            {permissions.map((permission) => <label key={permission.key} className={permission.dangerous ? "permission-dangerous" : ""}>
+              <input type="checkbox" checked={editingRole.slug === "owner" || editingRole.permissions.includes(permission.key)} onChange={() => togglePermission(permission.key)} />
+              <span><strong>{language === "en" ? permission.nameEn : permission.nameRu}{permission.dangerous ? " ⚠" : ""}</strong><small>{permission.key}</small><small>{permission.description}</small></span>
             </label>)}
           </fieldset>)}
         </div>
@@ -245,17 +253,20 @@ export default function AdminTeamManager() {
         {people.map((person) => <article key={person.id} className="team-person-editor">
           <div className="team-person-identity">
             <div className="team-person-avatar">{person.nickname.slice(0, 2).toUpperCase()}<span className={`team-presence-dot team-presence-dot--${person.presence}`} /></div>
-            <div><strong>{person.nickname}</strong><span>{person.email}</span><small>{formattedId(person.publicId)} · {person.verified ? "почта подтверждена" : "почта не подтверждена"}</small></div>
+            <div><strong>{person.nickname}</strong>{person.email && <span>{person.email}</span>}<small>{formattedId(person.publicId)} · {person.verified ? "почта подтверждена" : "почта не подтверждена"}{person.disabled ? " · аккаунт отключён" : ""}</small></div>
           </div>
           <div className="team-person-current"><RoleBadges roles={person.roles} compact />{!person.roles.length && <span>Обычный участник</span>}</div>
-          {can(access, "staff.assign_roles") && <div className="team-role-picker">
+          {can(access, "roles.assign") && can(access, "users.assign_roles") && <div className="team-role-picker">
             {roles.map((role) => <label key={role.slug} style={{ "--role-color": role.color }}>
-              <input type="checkbox" disabled={role.slug === "owner" && !can(access, "staff.manage_permissions")} checked={person.roles.some((item) => item.slug === role.slug)} onChange={() => toggleLocalRole(person.id, role.slug)} />
+              <input type="checkbox" disabled={person.id === access?.userId || (role.slug === "owner" && !access?.permissions?.includes("*"))} checked={person.roles.some((item) => item.slug === role.slug)} onChange={() => toggleLocalRole(person.id, role.slug)} />
               <span>{role.name}</span>
             </label>)}
           </div>}
-          {can(access, "staff.assign_roles") && <button className="button button--primary team-save-roles" disabled={busyId === person.id} onClick={() => saveRoles(person)}>
+          {can(access, "roles.assign") && can(access, "users.assign_roles") && <button className="button button--primary team-save-roles" disabled={busyId === person.id || person.id === access?.userId} onClick={() => saveRoles(person)}>
             {busyId === person.id ? "Сохранение…" : "Сохранить назначения"}
+          </button>}
+          {can(access, person.disabled ? "users.enable" : "users.disable") && person.id !== access?.userId && <button className={`button ${person.disabled ? "button--secondary" : "danger"}`} disabled={busyId === `status:${person.id}`} onClick={() => changePersonStatus(person)}>
+            {busyId === `status:${person.id}` ? "Сохранение…" : person.disabled ? "Разблокировать аккаунт" : "Отключить аккаунт"}
           </button>}
         </article>)}
         {!people.length && <div className="empty-state">Аккаунты не найдены.</div>}

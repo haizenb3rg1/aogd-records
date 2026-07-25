@@ -4,6 +4,8 @@ import {
   cleanupExpired,
   configurationStatus,
   enforceRateLimit,
+  getAdminAccess,
+  accessHasPermission,
   json,
   parseCookies,
   prepareAdminAudit,
@@ -24,7 +26,13 @@ async function count(db, sql, ...bindings) {
 export async function onRequestGet({ request, env }) {
   try {
     const db = requireDatabase(env);
-    await requirePermission(request, env, "security.read");
+    const access = await getAdminAccess(request, env);
+    if (!access) throw new ApiError("Требуется вход сотрудника.", 401, "admin_auth_required");
+    const canViewAudit = accessHasPermission(access, "security.view_audit");
+    const canViewSessions = accessHasPermission(access, "security.view_sessions");
+    if (!canViewAudit && !canViewSessions) {
+      throw new ApiError("У вашей должности нет права на этот раздел.", 403, "permission_denied");
+    }
     await enforceRateLimit(env, request, "admin-security-read", 120, 60 * 60);
     await cleanupExpired(env);
     const now = new Date().toISOString();
@@ -37,18 +45,18 @@ export async function onRequestGet({ request, env }) {
       limitedClients,
       audit,
     ] = await Promise.all([
-      count(db, "SELECT COUNT(*) AS total FROM admin_sessions WHERE expires_at > ?", now),
-      count(db, "SELECT COUNT(*) AS total FROM user_sessions WHERE expires_at > ?", now),
-      count(db, "SELECT COUNT(*) AS total FROM support_requests WHERE status = 'pending'"),
-      count(db, "SELECT COUNT(*) AS total FROM reception_threads WHERE status IN ('pending', 'needs_info')"),
-      count(db, "SELECT COUNT(*) AS total FROM users WHERE disabled_at IS NOT NULL"),
-      count(db, "SELECT COUNT(*) AS total FROM rate_limits WHERE reset_at > ? AND count > 1", now),
-      db.prepare(`
+      canViewSessions ? count(db, "SELECT COUNT(*) AS total FROM admin_sessions WHERE expires_at > ?", now) : 0,
+      canViewSessions ? count(db, "SELECT COUNT(*) AS total FROM user_sessions WHERE expires_at > ?", now) : 0,
+      canViewSessions ? count(db, "SELECT COUNT(*) AS total FROM support_requests WHERE status = 'pending'") : 0,
+      canViewSessions ? count(db, "SELECT COUNT(*) AS total FROM reception_threads WHERE status IN ('pending', 'needs_info')") : 0,
+      canViewSessions ? count(db, "SELECT COUNT(*) AS total FROM users WHERE disabled_at IS NOT NULL") : 0,
+      canViewSessions ? count(db, "SELECT COUNT(*) AS total FROM rate_limits WHERE reset_at > ? AND count > 1", now) : 0,
+      canViewAudit ? db.prepare(`
         SELECT action, target_id, details, request_id, created_at
         FROM admin_audit_log
         ORDER BY created_at DESC
         LIMIT 80
-      `).all(),
+      `).all() : Promise.resolve({ results: [] }),
     ]);
     return json({
       summary: { activeAdminSessions, activeUserSessions, pendingSupport, pendingReception, disabledUsers, limitedClients },
@@ -70,7 +78,7 @@ export async function onRequestDelete({ request, env }) {
   try {
     assertSameOrigin(request);
     const db = requireDatabase(env);
-    await requirePermission(request, env, "security.sessions.revoke");
+    await requirePermission(request, env, "security.revoke_sessions");
     const token = parseCookies(request)[ADMIN_COOKIE];
     const remove = token
       ? db.prepare("DELETE FROM admin_sessions WHERE token_hash <> ?").bind(await sha256(token))

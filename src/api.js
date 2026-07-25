@@ -430,6 +430,13 @@ export function updatePersonRoles(userId, roles) {
   });
 }
 
+export function updatePersonStatus(userId, disabled) {
+  return staffRequest(`admin/users/${encodeURIComponent(userId)}/${disabled ? "disable" : "enable"}`, {
+    method: "PUT",
+    body: "{}",
+  });
+}
+
 export function createStaffRole(data) {
   return staffRequest("admin/roles", { method: "POST", body: JSON.stringify(data) });
 }

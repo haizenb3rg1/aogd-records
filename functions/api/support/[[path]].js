@@ -104,7 +104,7 @@ async function storedPhotoResponse(request, env, db, id) {
   `).bind(id).first();
   if (!metadata?.has_photo) throw new ApiError("Файл не найден.", 404, "not_found");
   const user = await getCurrentUser(request, env);
-  if (!user || user.id !== metadata.user_id) await requirePermission(request, env, "support.read");
+  if (!user || user.id !== metadata.user_id) await requirePermission(request, env, "support.view_private");
   const row = await db.prepare("SELECT photo_data FROM support_requests WHERE id = ?").bind(id).first();
   const photo = decodeStoredPhoto(row?.photo_data);
   if (!photo) throw new ApiError("Файл не найден.", 404, "not_found");
@@ -154,14 +154,15 @@ export async function onRequestGet({ request, env, params }) {
       return json({ requests: result.results.map((row) => mapRequest(row, false)) });
     }
     if (action === "admin") {
-      await requirePermission(request, env, "support.read");
+      const access = await requirePermission(request, env, "support.view");
       await enforceRateLimit(env, request, "admin-support-read", 120, 60 * 60);
       const result = await db.prepare(`
         ${SELECT_REQUESTS}
         ORDER BY CASE s.status WHEN 'pending' THEN 0 ELSE 1 END, s.created_at DESC
         LIMIT 200
       `).all();
-      return json({ requests: result.results.map((row) => mapRequest(row, true)) });
+      const includeContact = access.permissions.includes("*") || access.permissions.includes("support.view_private");
+      return json({ requests: result.results.map((row) => mapRequest(row, includeContact)) });
     }
     throw new ApiError("Маршрут не найден.", 404, "not_found");
   } catch (error) {
@@ -236,7 +237,6 @@ export async function onRequestPut({ request, env, params }) {
   try {
     assertSameOrigin(request);
     const db = requireDatabase(env);
-    await requirePermission(request, env, "support.update");
     await enforceRateLimit(env, request, "admin-support-update", 120, 60 * 60);
     const parts = route(params).split("/").filter(Boolean);
     if (parts[0] !== "admin" || !parts[1]) throw new ApiError("Маршрут не найден.", 404, "not_found");
@@ -245,6 +245,14 @@ export async function onRequestPut({ request, env, params }) {
     const status = cleanText(body.status, 24);
     const moderatorNote = cleanText(body.moderatorNote, 1000);
     if (!STATUSES.has(status)) throw new ApiError("Недопустимый статус.", 400, "invalid_status");
+    const current = await db.prepare(`
+      SELECT status, moderator_note FROM support_requests WHERE id = ?
+    `).bind(id).first();
+    if (!current) throw new ApiError("Обращение не найдено.", 404, "not_found");
+    if (status !== current.status) await requirePermission(request, env, "support.change_status");
+    if (moderatorNote !== (current.moderator_note || "")) {
+      await requirePermission(request, env, "support.reply");
+    }
     const now = new Date().toISOString();
     const update = db.prepare(`
       UPDATE support_requests

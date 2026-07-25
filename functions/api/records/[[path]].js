@@ -305,6 +305,7 @@ export async function onRequestPost({ request, env, params }) {
     if (idFromParams(params)) throw new ApiError("Некорректный адрес для новой записи.", 400, "invalid_route");
     const db = requireDatabase(env);
     const { record, photo } = await readForm(request);
+    await requirePermission(request, env, record.status === "archived" ? "records.archive" : "records.publish");
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     record.fileNumber ||= `AOGD-${new Date().getUTCFullYear()}-${id.slice(0, 6).toUpperCase()}`;
@@ -358,12 +359,21 @@ export async function onRequestPost({ request, env, params }) {
 export async function onRequestPut({ request, env, params }) {
   let uploadedKey = "";
   try {
-    await authorizeMutation(request, env, "admin-record-update", "records.update");
+    await authorizeMutation(request, env, "admin-record-update", "records.edit");
     const db = requireDatabase(env);
     const id = idFromParams(params, true);
     const existing = await getExisting(db, id);
     if (!existing) throw new ApiError("Запись не найдена.", 404, "not_found");
     const { record, photo, removePhoto } = await readForm(request);
+    if (record.status !== existing.status) {
+      await requirePermission(
+        request,
+        env,
+        record.status === "archived" || existing.status === "archived"
+          ? "records.archive"
+          : "records.publish",
+      );
+    }
     const existingData = parseData(existing.data);
     record.fileNumber ||= existing.file_number;
     if (!removePhoto && existingData.photoDataUrl) record.photoDataUrl = existingData.photoDataUrl;
