@@ -17,14 +17,14 @@
     "check": "node scripts/security-smoke.mjs && vite build && node scripts/local-runtime-smoke.mjs && corepack pnpm audit --audit-level high"
   },
   "dependencies": {
-    "@react-three/fiber": "^9.6.1",
+    "@react-three/fiber": "^9.7.0",
     "@react-three/postprocessing": "^3.0.4",
-    "@vitejs/plugin-react": "6.0.3",
-    "postprocessing": "^6.39.2",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
+    "@vitejs/plugin-react": "6.0.5",
+    "postprocessing": "^6.39.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "three": "^0.185.1",
-    "vite": "8.1.5"
+    "vite": "8.2.0"
   },
   "devDependencies": {
     "wrangler": "^4.114.0"
